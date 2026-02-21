@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CuraLink - تسجيل الدخول</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            font-family: "Cairo", "Tajawal", sans-serif;
+            background:
+                radial-gradient(circle at 85% 15%, rgba(14, 116, 144, 0.28), transparent 36%),
+                radial-gradient(circle at 12% 90%, rgba(245, 158, 11, 0.22), transparent 35%),
+                linear-gradient(140deg, #081a29 0%, #0b3b56 42%, #0e7490 100%);
+            padding: 16px;
+        }
+
+        .login-page-wrapper {
+            width: 100%;
+            max-width: 980px;
+            display: grid;
+            grid-template-columns: 1.05fr 0.95fr;
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 32px 80px rgba(0, 0, 0, 0.34);
+            background: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+        }
+
+        .login-showcase {
+            padding: 40px;
+            color: #f5fbff;
+            background:
+                radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.12), transparent 46%),
+                linear-gradient(150deg, #082337 0%, #0a4d69 50%, #0e7490 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 24px;
+        }
+
+        .showcase-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 999px;
+            font-size: 0.85rem;
+            width: fit-content;
+        }
+
+        .login-showcase h2 {
+            margin: 0;
+            font-size: 2rem;
+            line-height: 1.4;
+        }
+
+        .login-showcase p {
+            margin: 10px 0 0;
+            color: rgba(236, 247, 255, 0.9);
+            line-height: 1.8;
+        }
+
+        .showcase-points {
+            display: grid;
+            gap: 12px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .showcase-points li {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 12px;
+            font-size: 0.95rem;
+        }
+
+        .login-container {
+            padding: 34px 28px;
+            background: #ffffff;
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .login-header .logo {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            color: var(--primary-dark);
+        }
+
+        .login-header .logo i {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            background: linear-gradient(135deg, var(--accent) 0%, #ea580c 100%);
+            color: #ffffff;
+            font-size: 1.2rem;
+        }
+
+        .login-header .logo h1 {
+            margin: 0;
+            font-size: 1.7rem;
+            color: var(--text-primary);
+        }
+
+        .login-header p {
+            margin: 0;
+            color: var(--text-secondary);
+        }
+
+        .login-tabs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            padding: 6px;
+            border-radius: 14px;
+            background: #eff5fb;
+            margin-bottom: 16px;
+        }
+
+        .tab-btn {
+            border: 0;
+            border-radius: 10px;
+            padding: 10px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            background: transparent;
+            cursor: pointer;
+            transition: 0.2s ease;
+            font-family: inherit;
+        }
+
+        .tab-btn.active {
+            background: linear-gradient(135deg, var(--primary) 0%, #0284c7 100%);
+            color: #ffffff;
+            box-shadow: 0 8px 18px rgba(14, 116, 144, 0.28);
+        }
+
+        .auth-form {
+            display: none;
+        }
+
+        .auth-form.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 11px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 11px;
+            padding: 10px 12px;
+            font-family: inherit;
+            transition: 0.2s ease;
+            background: #ffffff;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(14, 116, 144, 0.12);
+        }
+
+        .btn-primary {
+            width: 100%;
+            border: 0;
+            border-radius: 12px;
+            padding: 11px;
+            margin-top: 8px;
+            color: #fff;
+            font-family: inherit;
+            font-weight: 700;
+            cursor: pointer;
+            background: linear-gradient(135deg, var(--primary) 0%, #0284c7 100%);
+        }
+
+        .error-message {
+            margin-top: 8px;
+            min-height: 18px;
+            text-align: center;
+            color: var(--danger);
+            font-size: 0.85rem;
+        }
+
+        @media (max-width: 930px) {
+            .login-page-wrapper {
+                grid-template-columns: 1fr;
+                max-width: 500px;
+            }
+
+            .login-showcase {
+                padding: 24px 24px 18px;
+            }
+
+            .login-showcase h2 {
+                font-size: 1.5rem;
+            }
+
+            .showcase-points {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-page-wrapper">
+        <section class="login-showcase">
+            <div>
+                <span class="showcase-badge"><i class="fas fa-shield-heart"></i> منصة دوائية موثوقة</span>
+                <h2>إدارة التوريد الدوائي بسرعة ودقة</h2>
+                <p>تجربة موحدة تربط الصيدليات بالمخازن مع متابعة لحظية للمنتجات، الطلبات، والتنبيهات.</p>
+            </div>
+            <ul class="showcase-points">
+                <li><i class="fas fa-boxes-stacked"></i> متابعة المخزون والعروض من شاشة واحدة</li>
+                <li><i class="fas fa-bell"></i> إشعارات فورية لحالات الطلبات</li>
+                <li><i class="fas fa-chart-line"></i> رؤية أوضح للمبيعات والعمولات</li>
+            </ul>
+        </section>
+
+        <div class="login-container">
+            <div class="login-header">
+                <div class="logo">
+                    <i class="fas fa-pills"></i>
+                    <h1>CuraLink</h1>
+                </div>
+                <p>تسجيل الدخول إلى لوحة التحكم</p>
+            </div>
+
+            <div class="login-tabs">
+                <button class="tab-btn active" data-tab="login">دخول</button>
+                <button class="tab-btn" data-tab="register">تسجيل جديد</button>
+            </div>
+
+            <form id="login-form" class="auth-form active">
+                <div class="form-group">
+                    <label>البريد الإلكتروني</label>
+                    <input type="email" id="login-email" required placeholder="example@mail.com">
+                </div>
+                <div class="form-group">
+                    <label>كلمة المرور</label>
+                    <input type="password" id="login-password" required placeholder="أدخل كلمة المرور">
+                </div>
+                <button type="submit" class="btn-primary">
+                    <i class="fas fa-sign-in-alt"></i>
+                    تسجيل دخول
+                </button>
+                <div class="error-message" id="login-error"></div>
+            </form>
+
+            <form id="register-form" class="auth-form">
+                <div class="form-group">
+                    <label>اسم المستخدم</label>
+                    <input type="text" id="register-username" required placeholder="اسم الجهة">
+                </div>
+                <div class="form-group">
+                    <label>البريد الإلكتروني</label>
+                    <input type="email" id="register-email" required placeholder="example@mail.com">
+                </div>
+                <div class="form-group">
+                    <label>رقم الهاتف</label>
+                    <input type="tel" id="register-phone" placeholder="01XXXXXXXXX">
+                </div>
+                <div class="form-group">
+                    <label>العنوان</label>
+                    <input type="text" id="register-address" placeholder="المدينة - المنطقة">
+                </div>
+                <div class="form-group">
+                    <label>نوع الحساب</label>
+                    <select id="register-role">
+                        <option value="pharmacy">صيدلية</option>
+                        <option value="warehouse">مخزن دواء</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>كلمة المرور</label>
+                    <input type="password" id="register-password" required placeholder="8 أحرف على الأقل">
+                </div>
+                <button type="submit" class="btn-primary">
+                    <i class="fas fa-user-plus"></i>
+                    إنشاء حساب
+                </button>
+                <div class="error-message" id="register-error"></div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+
+        async function apiCall(endpoint, method = 'GET', body = null) {
+            const headers = { 'Content-Type': 'application/json' };
+            const options = { method, headers };
+
+            if (body) {
+                options.body = JSON.stringify(body);
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, options);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'حدث خطأ');
+                }
+
+                return data;
+            } catch (error) {
+                showError(error.message);
+                throw error;
+            }
+        }
+
+        function showError(message) {
+            const activeForm = document.querySelector('.auth-form.active');
+            const errorDiv = activeForm.querySelector('.error-message');
+            if (errorDiv) errorDiv.textContent = message;
+        }
+
+        function clearErrors() {
+            document.querySelectorAll('.error-message').forEach((div) => {
+                div.textContent = '';
+            });
+        }
+
+        function setupAuthTabs() {
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const authForms = document.querySelectorAll('.auth-form');
+
+            tabBtns.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    clearErrors();
+                    tabBtns.forEach((b) => b.classList.remove('active'));
+                    authForms.forEach((f) => f.classList.remove('active'));
+                    btn.classList.add('active');
+                    document.getElementById(`${btn.dataset.tab}-form`).classList.add('active');
+                });
+            });
+
+            document.getElementById('login-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                clearErrors();
+
+                const email = document.getElementById('login-email').value;
+                const password = document.getElementById('login-password').value;
+
+                try {
+                    const data = await apiCall('/auth/login', 'POST', { email, password });
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('user', JSON.stringify(data.user));
+                    showToast('مرحبًا بعودتك', 'success');
+                    setTimeout(() => { window.location.href = '/'; }, 500);
+                } catch (_) {}
+            });
+
+            document.getElementById('register-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                clearErrors();
+
+                const username = document.getElementById('register-username').value;
+                const email = document.getElementById('register-email').value;
+                const phone = document.getElementById('register-phone').value;
+                const address = document.getElementById('register-address').value;
+                const role = document.getElementById('register-role').value;
+                const password = document.getElementById('register-password').value;
+
+                try {
+                    const data = await apiCall('/auth/register', 'POST', {
+                        username, email, phone, address, role, password
+                    });
+
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('user', JSON.stringify(data.user));
+                    showToast('تم إنشاء الحساب بنجاح', 'success');
+                    setTimeout(() => { window.location.href = '/'; }, 500);
+                } catch (_) {}
+            });
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                padding: 12px 24px;
+                border-radius: 999px;
+                color: white;
+                font-weight: 700;
+                box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2);
+                z-index: 3000;
+                background: ${type === 'success' ? '#10B981' : type === 'error' ? '#EF4444' : '#0284c7'};
+            `;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.remove(); }, 2500);
+        }
+
+        function checkExistingAuth() {
+            const token = localStorage.getItem('token');
+            const user = localStorage.getItem('user');
+            if (token && user) window.location.href = '/';
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            checkExistingAuth();
+            setupAuthTabs();
+        });
+    </script>
+</body>
+</html>
