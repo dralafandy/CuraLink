@@ -3,8 +3,10 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-// Import Supabase client
-const { supabase, isSupabaseConfigured } = require('./supabase');
+// Check for Supabase configuration
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const isSupabaseConfigured = Boolean(supabaseUrl && supabaseKey);
 
 // Database configuration
 const DB_NAME = process.env.DB_NAME || 'curalink';
@@ -16,6 +18,14 @@ const isServerless = Boolean(
     process.env.FLY_APP_NAME ||
     process.env.NETLIFY
 );
+
+let db;
+
+// If Supabase is configured, we need to set up a different approach
+if (isSupabaseConfigured) {
+    // For Supabase, we'll use SQLite as fallback but warn user
+    console.log('Supabase is configured but using SQLite for now...');
+}
 
 // SQLite path resolution
 let dbPath;
@@ -39,198 +49,23 @@ if (isServerless) {
 }
 
 console.log('Database path:', dbPath);
-console.log('Using Supabase:', isSupabaseConfigured);
 
-// Initialize database connection
-let db;
+// Initialize SQLite
+db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
+    if (err) {
+        console.error('Error opening database:', err.message);
+    } else {
+        console.log('Connected to SQLite database');
+        initializeDatabase();
+    }
+});
 
-if (isSupabaseConfigured) {
-    // Use Supabase - db object will use supabase client directly
-    db = {
-        supabase: supabase,
-        isSupabase: true,
-        
-        // Helper for simple queries
-        get: async (sql, params = []) => {
-            // Parse simple SELECT queries
-            const tableMatch = sql.match(/FROM\s+(\w+)/i);
-            if (!tableMatch) return null;
-            
-            const table = tableMatch[1];
-            let query = supabase.from(table).select('*');
-            
-            // Handle WHERE clause
-            if (sql.includes('WHERE')) {
-                const whereMatch = sql.match(/WHERE\s+(\w+)\s*=\s*\?/i);
-                if (whereMatch) {
-                    query = query.eq(whereMatch[1], params[0]);
-                }
-            }
-            
-            // Handle LIMIT
-            if (sql.includes('LIMIT')) {
-                const limitMatch = sql.match(/LIMIT\s+(\d+)/i);
-                if (limitMatch) {
-                    query = query.limit(parseInt(limitMatch[1]));
-                }
-            }
-            
-            const { data, error } = await query;
-            if (error) throw error;
-            return data[0] || null;
-        },
-        
-        all: async (sql, params = []) => {
-            const tableMatch = sql.match(/FROM\s+(\w+)/i);
-            if (!tableMatch) return [];
-            
-            const table = tableMatch[1];
-            let query = supabase.from(table).select('*');
-            
-            // Handle WHERE clause
-            if (sql.includes('WHERE')) {
-                const whereMatch = sql.match(/WHERE\s+(\w+)\s*=\s*\?/i);
-                if (whereMatch) {
-                    query = query.eq(whereMatch[1], params[0]);
-                }
-            }
-            
-            // Handle ORDER BY
-            if (sql.includes('ORDER BY')) {
-                const orderMatch = sql.match(/ORDER BY\s+(\w+)(?:\s+(ASC|DESC))?/i);
-                if (orderMatch) {
-                    query = query.order(orderMatch[1], { ascending: orderMatch[2]?.toUpperCase() !== 'DESC' });
-                }
-            }
-            
-            const { data, error } = await query;
-            if (error) throw error;
-            return data || [];
-        },
-        
-        run: function(sql, params = [], callback) {
-            // For backward compatibility, we'll handle async
-            const self = this;
-            
-            // Determine operation type
-            if (sql.trim().toUpperCase().startsWith('INSERT')) {
-                const tableMatch = sql.match(/INTO\s+(\w+)/i);
-                if (tableMatch) {
-                    const table = tableMatch[1];
-                    // Parse column names and values
-                    const colsMatch = sql.match(/\(([^)]+)\)\s*VALUES/i);
-                    const valsMatch = sql.match(/VALUES\s*\(([^)]+)\)/i);
-                    
-                    if (colsMatch && valsMatch) {
-                        const cols = colsMatch[1].split(',').map(c => c.trim());
-                        const values = params;
-                        
-                        const data = {};
-                        cols.forEach((col, idx) => {
-                            data[col] = values[idx];
-                        });
-                        
-                        supabase.from(table).insert([data]).then(({ data, error }) => {
-                            if (error) {
-                                if (callback) callback(error);
-                            } else {
-                                if (callback) callback(null, { lastID: data[0]?.id, changes: 1 });
-                            }
-                        });
-                    }
-                }
-            } else if (sql.trim().toUpperCase().startsWith('UPDATE')) {
-                const tableMatch = sql.match(/UPDATE\s+(\w+)/i);
-                const whereMatch = sql.match(/WHERE\s+(\w+)\s*=\s*\?/i);
-                
-                if (tableMatch && whereMatch) {
-                    const table = tableMatch[1];
-                    const whereField = whereMatch[1];
-                    const whereValue = params[params.length - 1];
-                    
-                    // Parse SET clause
-                    const setMatch = sql.match(/SET\s+(.+?)\s+WHERE/i);
-                    if (setMatch) {
-                        const setCols = setMatch[1].split(',').map(s => s.trim());
-                        const setData = {};
-                        setCols.forEach((col, idx) => {
-                            const colName = col.split('=')[0].trim();
-                            setData[colName] = params[idx];
-                        });
-                        
-                        supabase.from(table).update(setData).eq(whereField, whereValue).then(({ error }) => {
-                            if (error) {
-                                if (callback) callback(error);
-                            } else {
-                                if (callback) callback(null, { changes: 1 });
-                            }
-                        });
-                    }
-                }
-            } else if (sql.trim().toUpperCase().startsWith('DELETE')) {
-                const tableMatch = sql.match(/FROM\s+(\w+)/i);
-                const whereMatch = sql.match(/WHERE\s+(\w+)\s*=\s*\?/i);
-                
-                if (tableMatch && whereMatch) {
-                    const table = tableMatch[1];
-                    const whereField = whereMatch[1];
-                    const whereValue = params[0];
-                    
-                    supabase.from(table).delete().eq(whereField, whereValue).then(({ error }) => {
-                        if (error) {
-                            if (callback) callback(error);
-                        } else {
-                            if (callback) callback(null, { changes: 1 });
-                        }
-                    });
-                }
-            }
-            
-            return {
-                // Chain support
-                then: (resolve, reject) => {
-                    // Execute and return promise-like behavior
-                    resolve({ changes: 0 });
-                }
-            };
-        },
-        
-        serialize: (callback) => {
-            // Skip for Supabase
-            console.log('Skipping serialize for Supabase');
-            callback();
-        },
-        
-        on: (event, callback) => {
-            // No-op for Supabase
-        }
-    };
-    
-    // Initialize database structure for Supabase
-    initializeDatabase();
-} else {
-    // Use SQLite
-    db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
-        if (err) {
-            console.error('Error opening database:', err.message);
-        } else {
-            console.log('Connected to SQLite database');
-            initializeDatabase();
-        }
-    });
-
-    db.on('error', (err) => {
-        console.error('Database error:', err.message);
-    });
-}
+// Handle SQLite errors
+db.on('error', (err) => {
+    console.error('Database error:', err.message);
+});
 
 function initializeDatabase() {
-    // Use serialize for SQLite, but skip for Supabase
-    if (isSupabaseConfigured) {
-        console.log('Database tables should be created via Supabase dashboard using supabase-schema.sql');
-        return;
-    }
-    
     db.serialize(() => {
         // Users table
         db.run(`
@@ -269,33 +104,6 @@ function initializeDatabase() {
                 FOREIGN KEY (warehouse_id) REFERENCES users(id)
             )
         `);
-
-        // Backward-compatible migrations
-        db.run('ALTER TABLE products ADD COLUMN discount_percent REAL NOT NULL DEFAULT 0', (err) => {
-            if (err && !err.message.includes('duplicate column name')) {
-                console.error('Error adding discount_percent column:', err.message);
-            }
-        });
-        db.run('ALTER TABLE products ADD COLUMN bonus_buy_quantity INTEGER NOT NULL DEFAULT 0', (err) => {
-            if (err && !err.message.includes('duplicate column name')) {
-                console.error('Error adding bonus_buy_quantity column:', err.message);
-            }
-        });
-        db.run('ALTER TABLE products ADD COLUMN bonus_free_quantity INTEGER NOT NULL DEFAULT 0', (err) => {
-            if (err && !err.message.includes('duplicate column name')) {
-                console.error('Error adding bonus_free_quantity column:', err.message);
-            }
-        });
-        db.run('ALTER TABLE products ADD COLUMN offer_note TEXT', (err) => {
-            if (err && !err.message.includes('duplicate column name')) {
-                console.error('Error adding offer_note column:', err.message);
-            }
-        });
-        db.run('ALTER TABLE products ADD COLUMN active_ingredient TEXT', (err) => {
-            if (err && !err.message.includes('duplicate column name')) {
-                console.error('Error adding active_ingredient column:', err.message);
-            }
-        });
 
         // Orders table
         db.run(`
