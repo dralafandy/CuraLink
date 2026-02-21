@@ -785,6 +785,34 @@ router.get('/', verifyToken, async (req, res) => {
         }
 
         const safeProducts = products || [];
+        const uniqueActiveIngredients = [...new Set(
+            safeProducts
+                .map((p) => (typeof p.active_ingredient === 'string' ? p.active_ingredient.trim() : ''))
+                .filter(Boolean)
+        )];
+        const alternativesCountByIngredient = new Map();
+
+        if (uniqueActiveIngredients.length > 0) {
+            const { data: alternativesRows, error: alternativesError } = await db.supabase
+                .from('products')
+                .select('active_ingredient, expiry_date')
+                .gt('quantity', 0)
+                .in('active_ingredient', uniqueActiveIngredients);
+
+            if (alternativesError) {
+                console.error('Error fetching alternatives by active ingredient:', alternativesError);
+                return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
+            }
+
+            (alternativesRows || []).forEach((row) => {
+                if (!row || !row.active_ingredient) return;
+                if (row.expiry_date && isExpired(row.expiry_date)) return;
+                const key = String(row.active_ingredient).trim().toLowerCase();
+                if (!key) return;
+                alternativesCountByIngredient.set(key, (alternativesCountByIngredient.get(key) || 0) + 1);
+            });
+        }
+
         const warehouseIds = [...new Set(safeProducts.map((p) => p.warehouse_id).filter(Boolean))];
         const { data: warehouses, error: warehousesError } = warehouseIds.length
             ? await db.supabase.from('users').select('id, username, address, rating').in('id', warehouseIds)
@@ -800,11 +828,20 @@ router.get('/', verifyToken, async (req, res) => {
             .filter((p) => !p.expiry_date || !isExpired(p.expiry_date))
             .map((product) => {
                 const warehouse = warehousesMap.get(product.warehouse_id);
+                const ingredientKey = typeof product.active_ingredient === 'string'
+                    ? product.active_ingredient.trim().toLowerCase()
+                    : '';
+                const alternativesCount = ingredientKey
+                    ? Math.max((alternativesCountByIngredient.get(ingredientKey) || 0) - 1, 0)
+                    : 0;
+
                 return calculateOfferMetrics({
                     ...product,
                     warehouse_name: warehouse?.username || null,
                     warehouse_address: warehouse?.address || null,
-                    warehouse_rating: warehouse?.rating ?? null
+                    warehouse_rating: warehouse?.rating ?? null,
+                    has_alternatives: alternativesCount > 0,
+                    alternatives_count: alternativesCount
                 });
             });
 
@@ -861,7 +898,7 @@ router.get('/my-products', verifyToken, (req, res) => {
         return res.status(403).json({ error: 'غير مصرح لك', code: 'FORBIDDEN' });
     }
 
-    const { page = 1, limit = CONFIG.DEFAULT_PAGE_SIZE, sort_by = 'created_at', sort_order = 'DESC' } = req.query;
+    const { page = 1, limit = CONFIG.DEFAULT_PAGE_SIZE, sort_by = 'created_at', sort_order = 'DESC', search } = req.query;
     
     const pageNum = Math.max(1, parseInt(page) || 1);
     const pageSize = Math.min(CONFIG.MAX_PAGE_SIZE, Math.max(1, parseInt(limit) || CONFIG.DEFAULT_PAGE_SIZE));
@@ -871,10 +908,20 @@ router.get('/my-products', verifyToken, (req, res) => {
     const sortField = allowedSortFields.includes(sort_by) ? sort_by : 'created_at';
     const sortDirection = sort_order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-    const countQuery = 'SELECT COUNT(*) as total FROM products WHERE warehouse_id = ?';
-    const query = `SELECT * FROM products WHERE warehouse_id = ? ORDER BY ${sortField} ${sortDirection} LIMIT ? OFFSET ?`;
+    const searchTerm = typeof search === 'string' ? search.trim().substring(0, 100) : '';
+    let whereClause = 'warehouse_id = ?';
+    const whereParams = [req.user.id];
 
-    db.get(countQuery, [req.user.id], (err, countResult) => {
+    if (searchTerm) {
+        whereClause += ' AND (name LIKE ? OR description LIKE ? OR category LIKE ? OR active_ingredient LIKE ?)';
+        const likeTerm = `%${searchTerm}%`;
+        whereParams.push(likeTerm, likeTerm, likeTerm, likeTerm);
+    }
+
+    const countQuery = `SELECT COUNT(*) as total FROM products WHERE ${whereClause}`;
+    const query = `SELECT * FROM products WHERE ${whereClause} ORDER BY ${sortField} ${sortDirection} LIMIT ? OFFSET ?`;
+
+    db.get(countQuery, whereParams, (err, countResult) => {
         if (err) {
             console.error('Error counting products:', err);
             return res.status(500).json({ error: 'خطأ في الخادم', code: 'COUNT_ERROR' });
@@ -883,7 +930,7 @@ router.get('/my-products', verifyToken, (req, res) => {
         const totalItems = countResult?.total || 0;
         const totalPages = Math.ceil(totalItems / pageSize);
 
-        db.all(query, [req.user.id, pageSize, offset], (err, products) => {
+        db.all(query, [...whereParams, pageSize, offset], (err, products) => {
             if (err) {
                 console.error('Error fetching warehouse products:', err);
                 return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
@@ -948,6 +995,88 @@ router.get('/expired', verifyToken, (req, res) => {
         }
         res.json({ products });
     });
+});
+
+// Get alternatives for a product (same active ingredient)
+router.get('/:id/alternatives', verifyToken, async (req, res) => {
+    const productId = parseInt(req.params.id, 10);
+    if (Number.isNaN(productId)) {
+        return res.status(400).json({ error: 'معرف المنتج غير صحيح', code: 'INVALID_PRODUCT_ID' });
+    }
+
+    try {
+        const { data: baseProduct, error: baseProductError } = await db.supabase
+            .from('products')
+            .select('id, name, active_ingredient')
+            .eq('id', productId)
+            .single();
+
+        if (baseProductError) {
+            console.error('Error fetching base product for alternatives:', baseProductError);
+            return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
+        }
+
+        if (!baseProduct) {
+            return res.status(404).json({ error: 'المنتج غير موجود', code: 'NOT_FOUND' });
+        }
+
+        const activeIngredient = typeof baseProduct.active_ingredient === 'string'
+            ? baseProduct.active_ingredient.trim()
+            : '';
+
+        if (!activeIngredient) {
+            return res.json({
+                product: baseProduct,
+                alternatives: [],
+                count: 0
+            });
+        }
+
+        const { data: alternativesRaw, error: alternativesError } = await db.supabase
+            .from('products')
+            .select('*')
+            .neq('id', productId)
+            .ilike('active_ingredient', activeIngredient)
+            .gt('quantity', 0);
+
+        if (alternativesError) {
+            console.error('Error fetching alternatives:', alternativesError);
+            return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
+        }
+
+        const validAlternatives = (alternativesRaw || []).filter((p) => !p.expiry_date || !isExpired(p.expiry_date));
+        const warehouseIds = [...new Set(validAlternatives.map((p) => p.warehouse_id).filter(Boolean))];
+        const { data: warehouses, error: warehousesError } = warehouseIds.length
+            ? await db.supabase.from('users').select('id, username, address, rating').in('id', warehouseIds)
+            : { data: [], error: null };
+
+        if (warehousesError) {
+            console.error('Error fetching warehouses for alternatives:', warehousesError);
+            return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
+        }
+
+        const warehousesMap = new Map((warehouses || []).map((w) => [w.id, w]));
+        const alternatives = validAlternatives
+            .map((product) => {
+                const warehouse = warehousesMap.get(product.warehouse_id);
+                return calculateOfferMetrics({
+                    ...product,
+                    warehouse_name: warehouse?.username || null,
+                    warehouse_address: warehouse?.address || null,
+                    warehouse_rating: warehouse?.rating ?? null
+                });
+            })
+            .sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
+
+        return res.json({
+            product: baseProduct,
+            alternatives,
+            count: alternatives.length
+        });
+    } catch (err) {
+        console.error('Unhandled alternatives fetch error:', err);
+        return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
+    }
 });
 
 // Get single product

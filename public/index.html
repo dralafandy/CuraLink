@@ -346,6 +346,9 @@
                     </div>
                 </div>
                 <input type="file" id="import-file-window" accept=".xlsx,.xls,.csv" style="display: none;" onchange="handleImportFileSelection(event)">
+                <div class="search-filters">
+                    <input type="text" id="warehouse-product-search" placeholder="ابحث باسم الصنف أو المادة الفعالة..." oninput="scheduleWarehouseProductSearch()">
+                </div>
                 <div class="products-grid" id="warehouse-products-grid">
                 </div>
             </div>
@@ -359,7 +362,7 @@
                         <p>اكتشف مجموعة واسعة من المنتجات الطبية من أفضل المخازن</p>
                         <div class="hero-search-box">
                             <i class="fas fa-search"></i>
-                            <input type="text" id="product-search" placeholder="ابحث عن منتج، فئة، أو مخزن..." oninput="scheduleProductSearch()">
+                            <input type="text" id="product-search" placeholder="ابحث عن منتج، مادة فعالة، فئة، أو مخزن..." oninput="scheduleProductSearch()">
                             <button class="search-btn" onclick="searchProducts(1)">
                                 بحث
                             </button>
@@ -934,6 +937,20 @@
                             </button>
                         </div>
                     </form>
+                </div>
+            </div>
+
+            <!-- Alternatives Modal -->
+            <div id="alternatives-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 id="alternatives-modal-title">بدائل الدواء</h3>
+                        <button class="close-modal" onclick="closeModal('alternatives-modal')">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body" id="alternatives-modal-content">
+                    </div>
                 </div>
             </div>
 

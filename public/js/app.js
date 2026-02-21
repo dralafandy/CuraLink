@@ -17,6 +17,7 @@ let notificationPagination = null;
 let notificationSettingsCache = null;
 let pushState = { supported: false, enabled: false, publicKey: null, swRegistration: null };
 let productSearchDebounceTimer = null;
+let warehouseProductSearchDebounceTimer = null;
 let pharmacyProductsPage = 1;
 let pharmacyProductsPagination = null;
 const IMPORT_ALLOWED_EXTENSIONS = ['.xlsx', '.xls', '.csv'];
@@ -727,6 +728,7 @@ async function loadPharmacyStats() {
 async function loadWarehouseProducts() {
     try {
         initWarehouseProductsViewPreference();
+        const searchTerm = (document.getElementById('warehouse-product-search')?.value || '').trim();
 
         const pageSize = 100;
         let page = 1;
@@ -734,7 +736,9 @@ async function loadWarehouseProducts() {
         let hasNext = true;
 
         while (hasNext) {
-            const data = await apiCall(`/products/my-products?page=${page}&limit=${pageSize}`);
+            let endpoint = `/products/my-products?page=${page}&limit=${pageSize}`;
+            if (searchTerm) endpoint += `&search=${encodeURIComponent(searchTerm)}`;
+            const data = await apiCall(endpoint);
             const pageItems = data.products || [];
             allProducts = allProducts.concat(pageItems);
 
@@ -747,6 +751,15 @@ async function loadWarehouseProducts() {
     } catch (error) {
         console.error(error);
     }
+}
+
+function scheduleWarehouseProductSearch() {
+    if (warehouseProductSearchDebounceTimer) {
+        clearTimeout(warehouseProductSearchDebounceTimer);
+    }
+    warehouseProductSearchDebounceTimer = setTimeout(() => {
+        loadWarehouseProducts();
+    }, 300);
 }
 
 function renderWarehouseProducts(products) {
@@ -1387,6 +1400,9 @@ function renderPharmacyProducts(products, targetGridId = 'pharmacy-products-grid
         if (product.bonus_buy_quantity > 0 && product.bonus_free_quantity > 0) {
             offerBadge += `<span class="offer-badge bonus"><i class="fas fa-gift"></i> ${product.bonus_buy_quantity}+${product.bonus_free_quantity} بونص</span>`;
         }
+        if (product.has_alternatives) {
+            offerBadge += `<span class="offer-badge alternative" title="يوجد ${product.alternatives_count} بديل بنفس المادة الفعالة"><i class="fas fa-clone"></i> بدائل ${product.alternatives_count}</span>`;
+        }
         const finalPrice = product.discount_percent > 0
             ? (product.price * (1 - product.discount_percent / 100)).toFixed(2)
             : product.price.toFixed(2);
@@ -1425,6 +1441,11 @@ function renderPharmacyProducts(products, targetGridId = 'pharmacy-products-grid
                 ${product.offer_note ? `<div class="offer-note"><i class="fas fa-info-circle"></i> ${escapeHtml(product.offer_note)}</div>` : ''}
             </div>
             <div class="product-actions">
+                ${product.has_alternatives ? `
+                <button class="btn-secondary btn-sm alternatives-open-btn" onclick="showAlternativesModal(${product.id})" title="عرض بدائل نفس المادة الفعالة">
+                    <i class="fas fa-clone"></i>
+                </button>
+                ` : ''}
                 <input
                     type="number"
                     class="cart-qty-input"
@@ -1441,6 +1462,75 @@ function renderPharmacyProducts(products, targetGridId = 'pharmacy-products-grid
             </div>
         </div>
     `}).join('');
+}
+
+async function showAlternativesModal(productId) {
+    try {
+        const data = await apiCall(`/products/${productId}/alternatives`);
+        const baseProduct = data.product || null;
+        const alternatives = Array.isArray(data.alternatives) ? data.alternatives : [];
+        const titleEl = document.getElementById('alternatives-modal-title');
+        const contentEl = document.getElementById('alternatives-modal-content');
+
+        if (!titleEl || !contentEl) return;
+
+        const productName = baseProduct?.name || 'المنتج';
+        const ingredient = baseProduct?.active_ingredient || 'غير محدد';
+        titleEl.textContent = `بدائل ${productName}`;
+
+        if (!alternatives.length) {
+            contentEl.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-flask"></i>
+                    <p>لا توجد بدائل متاحة حالياً لنفس المادة الفعالة (${escapeHtml(ingredient)})</p>
+                </div>
+            `;
+            document.getElementById('alternatives-modal').classList.add('active');
+            return;
+        }
+
+        contentEl.innerHTML = `
+            <p class="alternatives-subtitle">
+                المادة الفعالة: <strong>${escapeHtml(ingredient)}</strong> • عدد البدائل: <strong>${alternatives.length}</strong>
+            </p>
+            <div class="alternatives-list">
+                ${alternatives.map((alt) => {
+                    const finalPrice = Number(alt.discount_percent) > 0
+                        ? (Number(alt.price) * (1 - Number(alt.discount_percent) / 100)).toFixed(2)
+                        : Number(alt.price || 0).toFixed(2);
+                    return `
+                    <div class="alternative-item">
+                        <div class="alternative-item-main">
+                            <h4>${escapeHtml(alt.name || '-')}</h4>
+                            <p><i class="fas fa-warehouse"></i> ${escapeHtml(alt.warehouse_name || '-')}</p>
+                            <p><i class="fas fa-coins"></i> ${finalPrice} ج.م ${Number(alt.discount_percent) > 0 ? `<span class="alt-old-price">${Number(alt.price || 0).toFixed(2)} ج.م</span>` : ''}</p>
+                            <p><i class="fas fa-boxes"></i> ${Number(alt.quantity || 0)} متوفر</p>
+                        </div>
+                        <div class="alternative-item-actions">
+                            <input
+                                type="number"
+                                class="cart-qty-input"
+                                id="alt-cart-qty-${alt.id}"
+                                min="1"
+                                max="${Math.max(1, Number(alt.quantity || 0))}"
+                                value="1"
+                                ${Number(alt.quantity || 0) === 0 ? 'disabled' : ''}
+                            >
+                            <button class="btn-primary btn-sm" onclick="addToCart(${alt.id}, Number(document.getElementById('alt-cart-qty-${alt.id}')?.value || 1))" ${Number(alt.quantity || 0) === 0 ? 'disabled' : ''}>
+                                <i class="fas fa-cart-plus"></i>
+                                إضافة للسلة
+                            </button>
+                        </div>
+                    </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+
+        document.getElementById('alternatives-modal').classList.add('active');
+    } catch (error) {
+        console.error(error);
+    }
 }
 
 async function loadWishlistIds() {
