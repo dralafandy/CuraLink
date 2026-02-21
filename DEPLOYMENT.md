@@ -1,225 +1,176 @@
 # PharmaConnect Deployment Guide
 
-## ⚠️ Important Note About SQLite and Vercel
+## 🚀 Quick Deploy with Supabase
 
-This project uses SQLite database. **Vercel serverless functions are ephemeral**, meaning:
-- Database changes won't persist between function invocations
-- The `/tmp` directory is temporary and gets cleared
-- Each request may hit a different server instance
+### Step 1: Create Supabase Project
 
-### Solutions for Database Persistence:
+1. Go to [supabase.com](https://supabase.com)
+2. Sign in with GitHub
+3. Click "New Project"
+4. Fill in details:
+   - **Name:** PharmaConnect
+   - **Database Password:** Your secure password (remember this!)
+   - **Region:** Choose nearest to your users
 
-#### Option A: Use External Database (Recommended for Production)
-For production, use PostgreSQL, MySQL, or a service like:
-- **Neon** (Free PostgreSQL) - https://neon.tech
-- **Supabase** (Free PostgreSQL) - https://supabase.com
-- **Railway** (MySQL/PostgreSQL) - https://railway.app
+5. Wait for setup to complete (about 2 minutes)
 
-#### Option B: Use Vercel with SQLite (Limited)
-For testing/demo purposes, the app will work but:
-- Data resets on each deployment
-- Not suitable for production with real data
-- Use the `/tmp` directory for temporary storage
+### Step 2: Create Database Tables
 
----
+1. In Supabase dashboard, click **SQL Editor**
+2. Copy contents from `database/supabase-schema.sql`
+3. Paste and click **Run**
+4. Verify tables created (check **Table Editor** in sidebar)
 
-## 🚀 Quick Deploy to Vercel
+### Step 3: Get Supabase Credentials
 
-### Step 1: Push to GitHub
+1. Go to **Project Settings** (gear icon)
+2. Click **API**
+3. Copy:
+   - **Project URL** (SUPABASE_URL)
+   - **anon public** key (SUPABASE_ANON_KEY)
+
+### Step 4: Push to GitHub
+
 ```
 bash
 git init
 git add .
-git commit -m "Initial commit"
+git commit -m "Add Supabase support"
 git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/PharmaConnect.git
 git push -u origin main
 ```
 
-### Step 2: Connect to Vercel
+### Step 5: Deploy to Vercel
+
 1. Go to [vercel.com](https://vercel.com)
-2. Sign in with GitHub
-3. Click "Add New..." → "Project"
-4. Import your GitHub repository
-5. Configure settings:
-   - **Framework Preset:** Other
-   - **Build Command:** Leave empty
-   - **Output Directory:** Leave empty
-6. Click "Deploy"
+2. Add New → Project
+3. Import your GitHub repository
+4. In **Environment Variables**, add:
 
-### Step 3: Get Your URL
-- Vercel provides a URL like `your-app.vercel.app`
+| Variable | Value |
+|----------|-------|
+| `SUPABASE_URL` | Your Supabase Project URL |
+| `SUPABASE_ANON_KEY` | Your anon public key |
+| `NODE_ENV` | production |
 
----
-
-## 🔧 Environment Variables
-
-If using external database, add these in Vercel dashboard:
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL/MySQL connection string | `postgres://user:pass@host:5432/db` |
-| `DB_NAME` | Database name | `pharmaconnect` |
-| `JWT_SECRET` | Secret for JWT tokens | `your-secret-key` |
-| `NODE_ENV` | Environment | `production` |
+5. Click **Deploy**
 
 ---
 
-## 📋 Vercel Configuration
+## 🔧 Alternative: Supabase + Local Development
 
-The project includes `vercel.json` with proper configuration:
+### Local Setup
 
+1. Create `.env` file:
 ```
-json
-{
-  "version": 2,
-  "builds": [
-    { "src": "api/index.js", "use": "@vercel/node" },
-    { "src": "public/**", "use": "@vercel/static" }
-  ],
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/index.js" },
-    { "src": "/login", "dest": "/public/login.html" },
-    { "src": "/(.*)", "dest": "/public/$1" }
-  ]
-}
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
 ```
 
----
-
-## 🔄 GitHub Actions Deployment
-
-The project includes `.github/workflows/deploy.yml` for automatic deployment:
-
-1. **Push to main branch** → Deploys to production
-2. **Create Pull Request** → Deploys preview version
-
-### Required Secrets (Vercel Dashboard → Settings → Git Integrations):
-- `VERCEL_TOKEN` - Your Vercel API token
-- `VERCEL_ORG_ID` - Your organization ID
-- `VERCEL_PROJECT_ID` - Your project ID
-
----
-
-## 🖥️ Alternative Hosting Options
-
-### Option 1: Railway (Recommended for SQLite)
-Railway supports persistent file storage perfect for SQLite.
-
-1. Go to [railway.app](https://railway.app)
-2. Sign in with GitHub
-3. Click "New Project" → "Deploy from GitHub repo"
-4. Select your repository
-5. Railway auto-detects Node.js and deploys
-6. Your app: `your-app.railway.app`
-
-**Free tier:** $5 credit/month
-
-### Option 2: Render
-Render offers persistent disk for SQLite.
-
-1. Go to [render.com](https://render.com)
-2. Create "Web Service"
-3. Connect GitHub repository
-4. Configure:
-   - Build Command: `npm install`
-   - Start Command: `npm start`
-   - Add Persistent Disk: Yes (required for SQLite)
-
-**Free tier:** 750 hours/month
-
-### Option 3: Traditional VPS (DigitalOcean, Linode)
-1. Create Ubuntu VPS
-2. Install Node.js:
-   
-```
-bash
-   curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-   sudo apt install -y nodejs
-   
-```
-3. Clone repo or upload files
-4. Install PM2:
-   
-```
-bash
-   sudo npm install -g pm2
-   pm2 start server.js --name pharmaconnect
-   pm2 startup
-   pm2 save
-   
-```
-5. Setup Nginx reverse proxy for SSL
-
----
-
-## 🧪 Testing Local Development
-
-```
-bash
-# Install dependencies
+2. Install dependencies:
+```bash
 npm install
-
-# Run development server
-npm run dev
-
-# Server runs on http://localhost:3000
 ```
 
-### Default Accounts:
-- **Admin:** admin@curalink.com / admin123
-- **Warehouse:** warehouse1@test.com / warehouse123
-- **Pharmacy:** pharmacy1@test.com / pharmacy123
+3. Run locally:
+```
+bash
+npm run dev
+```
 
 ---
 
-## 📝 Troubleshooting
+## 📋 Database Schema
 
-### Database Issues
-- Ensure `database/` folder exists in deployment
-- Check file permissions for `.db` files
-- On Railway/Render, database persists between deploys
-- On Vercel, use external database for persistence
+The project includes `database/supabase-schema.sql` with:
 
-### Port Issues
-- App uses `process.env.PORT || 3000`
-- Hosting platforms set PORT automatically
+- **users** - Admin, warehouses, pharmacies
+- **products** - Medicine listings
+- **orders** - Pharmacy orders
+- **order_items** - Order details
+- **invoices** - Payment tracking
+- **notifications** - User notifications
+- **wishlist** - Pharmacy favorites
+- **ratings** - Warehouse reviews
+- **returns** - Order returns
+- **And more...**
 
-### Static Files Not Loading
-- Check `public/` folder is in git
-- Verify paths in HTML/JS files
-
-### Common Vercel Errors
-| Error | Solution |
-|-------|----------|
-| 404 on API routes | Check `vercel.json` routes configuration |
-| Database not found | Ensure database file is in correct location |
-| Function timeout | Increase maxDuration in vercel.json |
+All tables have:
+- Proper indexes for performance
+- Row Level Security (RLS) policies
+- Foreign key relationships
 
 ---
 
-## 📚 Additional Resources
+## 🔄 Using SQLite (Development Only)
 
-- Vercel Docs: https://vercel.com/docs
-- Railway Docs: https://docs.railway.app
-- Render Docs: https://render.com/docs
-- SQLite3 Node.js: https://www.npmjs.com/package/sqlite3
+For local development without Supabase:
+
+1. Delete or comment out Supabase env variables
+2. App will automatically use SQLite from `database/curalink.db`
+3. Data will be stored locally
+
+**Note:** SQLite won't persist on Vercel serverless!
 
 ---
 
-## ⚡ Performance Tips
+## ⚙️ Environment Variables
 
-1. **Use CDN** - Vercel automatically serves static files via CDN
-2. **Optimize Images** - Compress images in `public/uploads/`
-3. **Database Indexes** - Already configured in `database/db.js`
-4. **API Response Caching** - Consider adding cache headers
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SUPABASE_URL` | Yes (for Supabase) | Your Supabase project URL |
+| `SUPABASE_ANON_KEY` | Yes (for Supabase) | Your anon public key |
+| `DB_NAME` | No | Database name (default: curalink) |
+| `JWT_SECRET` | No | Secret for JWT tokens |
+| `NODE_ENV` | No | production or development |
+
+---
+
+## 🖥️ Default Test Accounts
+
+After deployment, use these accounts:
+
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | admin@curalink.com | admin123 |
+| Warehouse | warehouse1@test.com | warehouse123 |
+| Pharmacy | pharmacy1@test.com | pharmacy123 |
+
+---
+
+## 🔧 Troubleshooting
+
+### Database Connection Error
+- Verify SUPABASE_URL and SUPABASE_ANON_KEY are correct
+- Check Supabase project is active
+- Ensure RLS policies allow access
+
+### Table Not Found
+- Run `database/supabase-schema.sql` in Supabase SQL Editor
+- Check Table Editor shows all tables
+
+### Authentication Issues
+- Clear browser cache
+- Check JWT_SECRET is set in Vercel
+
+### CORS Errors
+- Update Supabase settings → API → CORS settings
+- Add your Vercel domain to allowed origins
+
+---
+
+## 📚 Resources
+
+- [Supabase Docs](https://supabase.com/docs)
+- [Vercel Docs](https://vercel.com/docs)
+- [GitHub Actions](https://docs.github.com/en/actions)
 
 ---
 
 ## 🔐 Security Notes
 
-1. Change JWT_SECRET in production
-2. Use HTTPS (automatic on Vercel)
-3. Validate user input on all endpoints
-4. Keep dependencies updated
-5. Don't commit sensitive data to GitHub
+1. Keep `SUPABASE_ANON_KEY` secret (it's public but don't expose unnecessarily)
+2. For production, configure proper RLS policies in Supabase
+3. Use strong JWT_SECRET
+4. Enable 2FA on Supabase and Vercel accounts

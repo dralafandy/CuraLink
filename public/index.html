@@ -445,9 +445,9 @@
                         <div class="filter-group price-range">
                             <label><i class="fas fa-coins"></i> نطاق السعر</label>
                             <div class="price-inputs">
-                                <input type="number" id="min-price-filter" min="0" step="0.01" placeholder="أدنى">
+                                <input type="number" id="min-price-filter" min="0" step="0.01" placeholder="أدنى" oninput="scheduleProductSearch()">
                                 <span class="price-separator">-</span>
-                                <input type="number" id="max-price-filter" min="0" step="0.01" placeholder="أعلى">
+                                <input type="number" id="max-price-filter" min="0" step="0.01" placeholder="أعلى" oninput="scheduleProductSearch()">
                             </div>
                         </div>
                         <div class="filter-group">

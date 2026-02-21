@@ -3283,16 +3283,14 @@ body {
     background: linear-gradient(135deg, var(--accent-hover) 0%, #c2410c 100%);
 }
 
-.filters-section {
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(6px);
+.filters-panel {
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(10px);
 }
 
-.results-info {
+.results-header {
     background: #ffffff;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-sm);
+    border-bottom: 1px solid var(--border);
 }
 
 .view-btn.active {
