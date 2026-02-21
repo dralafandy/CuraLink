@@ -139,7 +139,13 @@ async function apiCall(endpoint, method = 'GET', body = null) {
             }
 
             const oneLine = (textBody || '').replace(/\s+/g, ' ').trim();
-            if (oneLine.toLowerCase().includes('server error')) {
+            const lower = oneLine.toLowerCase();
+
+            if (lower.includes('authentication required') || lower.includes('vercel authentication')) {
+                throw new Error('النشر محمي على Vercel. عطّل Deployment Protection أو استخدم رابطًا عامًا.');
+            }
+
+            if (lower.includes('server error')) {
                 throw new Error('حدث خطأ داخلي في الخادم. حاول مرة أخرى');
             }
 

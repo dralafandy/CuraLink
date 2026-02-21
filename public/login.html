@@ -346,7 +346,13 @@
                     }
 
                     const oneLine = (textBody || '').replace(/\s+/g, ' ').trim();
-                    if (oneLine.toLowerCase().includes('server error')) {
+                    const lower = oneLine.toLowerCase();
+
+                    if (lower.includes('authentication required') || lower.includes('vercel authentication')) {
+                        throw new Error('Deployment is protected on Vercel. Disable deployment protection or use a public URL.');
+                    }
+
+                    if (lower.includes('server error')) {
                         throw new Error('Server internal error. Please try again.');
                     }
 
