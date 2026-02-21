@@ -123,26 +123,37 @@ async function apiCall(endpoint, method = 'GET', body = null) {
 
     try {
         const response = await fetch(`${API_BASE}${endpoint}`, options);
-        const contentType = response.headers.get('content-type') || '';
-        const isJson = contentType.includes('application/json');
-        const data = isJson ? await response.json() : null;
-        const textBody = isJson ? '' : await response.text();
-        
+        let data = null;
+        let textBody = '';
+
+        try {
+            textBody = await response.text();
+            data = textBody ? JSON.parse(textBody) : null;
+        } catch (_) {
+            data = null;
+        }
+
         if (!response.ok) {
             if (data && data.error) {
                 throw new Error(data.error);
             }
+
+            const oneLine = (textBody || '').replace(/\s+/g, ' ').trim();
+            if (oneLine.toLowerCase().includes('server error')) {
+                throw new Error('حدث خطأ داخلي في الخادم. حاول مرة أخرى');
+            }
+
             throw new Error(`فشل الطلب (${response.status})`);
         }
 
-        if (!isJson) {
+        if (!data) {
             const looksLikeHtml = textBody && textBody.trim().startsWith('<!DOCTYPE');
             if (looksLikeHtml) {
                 throw new Error('Endpoint API غير متاح حالياً (تم استلام HTML بدلاً من JSON)');
             }
             throw new Error('استجابة غير متوقعة من الخادم');
         }
-        
+
         return data;
     } catch (error) {
         showToast(error.message, 'error');

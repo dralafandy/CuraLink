@@ -330,10 +330,31 @@
 
             try {
                 const response = await fetch(`${API_BASE}${endpoint}`, options);
-                const data = await response.json();
+                let data = null;
+                let textBody = '';
+
+                try {
+                    textBody = await response.text();
+                    data = textBody ? JSON.parse(textBody) : null;
+                } catch (_) {
+                    data = null;
+                }
 
                 if (!response.ok) {
-                    throw new Error(data.error || 'حدث خطأ');
+                    if (data && data.error) {
+                        throw new Error(data.error);
+                    }
+
+                    const oneLine = (textBody || '').replace(/\s+/g, ' ').trim();
+                    if (oneLine.toLowerCase().includes('server error')) {
+                        throw new Error('Server internal error. Please try again.');
+                    }
+
+                    throw new Error(`Request failed (${response.status})`);
+                }
+
+                if (!data) {
+                    throw new Error('Unexpected server response');
                 }
 
                 return data;
@@ -442,3 +463,4 @@
     </script>
 </body>
 </html>
+

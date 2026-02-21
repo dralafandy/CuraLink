@@ -477,17 +477,14 @@ router.get('/:id', verifyToken, async (req, res) => {
     }
 
     try {
-        const order = await dbGet(
-            `
-                SELECT o.*, u1.username as pharmacy_name, u1.address as pharmacy_address,
-                       u2.username as warehouse_name, u2.address as warehouse_address
-                FROM orders o
-                JOIN users u1 ON o.pharmacy_id = u1.id
-                JOIN users u2 ON o.warehouse_id = u2.id
-                WHERE o.id = ?
-            `,
-            [orderId]
-        );
+        const { data: orderRows, error: orderError } = await db.supabase
+            .from('orders')
+            .select('*')
+            .eq('id', orderId)
+            .limit(1);
+        if (orderError) throw orderError;
+
+        const order = (orderRows || [])[0];
 
         if (!order) {
             return res.status(404).json({ error: 'الطلب غير موجود' });
@@ -495,14 +492,38 @@ router.get('/:id', verifyToken, async (req, res) => {
         if (req.user.role === 'pharmacy' && order.pharmacy_id !== req.user.id) return res.status(403).json({ error: 'غير مصرح' });
         if (req.user.role === 'warehouse' && order.warehouse_id !== req.user.id) return res.status(403).json({ error: 'غير مصرح' });
 
-        const items = await dbAll('SELECT * FROM order_items WHERE order_id = ?', [orderId]);
+        const profileIds = [order.pharmacy_id, order.warehouse_id].filter(Boolean);
+        if (profileIds.length > 0) {
+            const { data: profiles, error: profilesError } = await db.supabase
+                .from('users')
+                .select('id, username, address')
+                .in('id', profileIds);
+            if (profilesError) throw profilesError;
+
+            const profilesMap = new Map((profiles || []).map((profile) => [profile.id, profile]));
+            order.pharmacy_name = profilesMap.get(order.pharmacy_id)?.username || null;
+            order.pharmacy_address = profilesMap.get(order.pharmacy_id)?.address || null;
+            order.warehouse_name = profilesMap.get(order.warehouse_id)?.username || null;
+            order.warehouse_address = profilesMap.get(order.warehouse_id)?.address || null;
+        }
+
+        const { data: itemsData, error: itemsError } = await db.supabase
+            .from('order_items')
+            .select('*')
+            .eq('order_id', orderId);
+        if (itemsError) throw itemsError;
+
+        const items = itemsData || [];
         if (items.length > 0) {
-            const productIds = items.map((i) => i.product_id);
-            const placeholders = productIds.map(() => '?').join(',');
-            const products = await dbAll(`SELECT * FROM products WHERE id IN (${placeholders})`, productIds);
-            const productsMap = {};
-            products.forEach((p) => { productsMap[p.id] = p; });
-            items.forEach((item) => { item.product = productsMap[item.product_id]; });
+            const productIds = [...new Set(items.map((item) => item.product_id).filter(Boolean))];
+            const { data: products, error: productsError } = await db.supabase
+                .from('products')
+                .select('*')
+                .in('id', productIds);
+            if (productsError) throw productsError;
+
+            const productsMap = new Map((products || []).map((product) => [product.id, product]));
+            items.forEach((item) => { item.product = productsMap.get(item.product_id) || null; });
         }
         order.items = items;
 
@@ -515,16 +536,36 @@ router.get('/:id', verifyToken, async (req, res) => {
             meta: { source: 'order_details_api' }
         });
 
-        order.timeline = await dbAll(
-            `
-                SELECT e.*, u.username as actor_username
-                FROM order_events e
-                LEFT JOIN users u ON u.id = e.actor_user_id
-                WHERE e.order_id = ?
-                ORDER BY e.created_at ASC, e.id ASC
-            `,
-            [orderId]
-        );
+        const buildTimeline = async () => {
+            const { data: events, error: eventsError } = await db.supabase
+                .from('order_events')
+                .select('*')
+                .eq('order_id', orderId)
+                .order('created_at', { ascending: true })
+                .order('id', { ascending: true });
+            if (eventsError) throw eventsError;
+
+            const safeEvents = events || [];
+            const actorIds = [...new Set(safeEvents.map((event) => event.actor_user_id).filter(Boolean))];
+            const actorMap = new Map();
+
+            if (actorIds.length > 0) {
+                const { data: actors, error: actorsError } = await db.supabase
+                    .from('users')
+                    .select('id, username')
+                    .in('id', actorIds);
+                if (actorsError) throw actorsError;
+
+                (actors || []).forEach((actor) => actorMap.set(actor.id, actor.username));
+            }
+
+            return safeEvents.map((event) => ({
+                ...event,
+                actor_username: event.actor_user_id ? actorMap.get(event.actor_user_id) || null : null
+            }));
+        };
+
+        order.timeline = await buildTimeline();
 
         if (order.timeline.length === 0) {
             await dbRun(
@@ -543,30 +584,36 @@ router.get('/:id', verifyToken, async (req, res) => {
                 ]
             );
 
-            order.timeline = await dbAll(
-                `
-                    SELECT e.*, u.username as actor_username
-                    FROM order_events e
-                    LEFT JOIN users u ON u.id = e.actor_user_id
-                    WHERE e.order_id = ?
-                    ORDER BY e.created_at ASC, e.id ASC
-                `,
-                [orderId]
-            );
+            order.timeline = await buildTimeline();
         }
 
-        const returnsRows = await dbAll(
-            `
-                SELECT r.*, COUNT(ri.id) AS items_count
-                FROM returns r
-                LEFT JOIN return_items ri ON ri.return_id = r.id
-                WHERE r.order_id = ?
-                GROUP BY r.id
-                ORDER BY r.created_at DESC
-            `,
-            [orderId]
-        );
-        order.returns = returnsRows;
+        const { data: returnsRows, error: returnsError } = await db.supabase
+            .from('returns')
+            .select('*')
+            .eq('order_id', orderId)
+            .order('created_at', { ascending: false });
+        if (returnsError) throw returnsError;
+
+        const safeReturns = returnsRows || [];
+        if (safeReturns.length > 0) {
+            const returnIds = safeReturns.map((row) => row.id);
+            const { data: returnItems, error: returnItemsError } = await db.supabase
+                .from('return_items')
+                .select('id, return_id')
+                .in('return_id', returnIds);
+            if (returnItemsError) throw returnItemsError;
+
+            const itemsCountByReturn = new Map();
+            for (const row of returnItems || []) {
+                itemsCountByReturn.set(row.return_id, (itemsCountByReturn.get(row.return_id) || 0) + 1);
+            }
+            order.returns = safeReturns.map((row) => ({
+                ...row,
+                items_count: itemsCountByReturn.get(row.id) || 0
+            }));
+        } else {
+            order.returns = [];
+        }
 
         return res.json({ order });
     } catch (err) {

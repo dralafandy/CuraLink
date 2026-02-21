@@ -2,15 +2,26 @@
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_KEY;
+const hasSupabaseConfig = Boolean(supabaseUrl && supabaseKey);
 
-if (!supabaseUrl || !supabaseKey) {
-    throw new Error(
+if (!hasSupabaseConfig) {
+    console.error(
         'Supabase configuration missing. Set SUPABASE_URL and SUPABASE_ANON_KEY (or SUPABASE_SERVICE_KEY).'
     );
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
-console.log('Supabase client initialized');
+const supabase = hasSupabaseConfig ? createClient(supabaseUrl, supabaseKey) : null;
+if (supabase) {
+    console.log('Supabase client initialized');
+}
+
+function ensureSupabaseConfigured() {
+    if (!supabase) {
+        throw new Error(
+            'Supabase configuration missing. Set SUPABASE_URL and SUPABASE_ANON_KEY (or SUPABASE_SERVICE_KEY).'
+        );
+    }
+}
 
 function normalizeArgs(params, callback) {
     if (typeof params === 'function') {
@@ -179,6 +190,7 @@ const db = {
         const normalized = normalizeArgs(params, callback);
 
         const promise = (async () => {
+            ensureSupabaseConfigured();
             const parsed = parseSql(sql, normalized.params);
             if (!parsed.table) throw new Error('Invalid table in query');
 
@@ -219,6 +231,7 @@ const db = {
         const normalized = normalizeArgs(params, callback);
 
         const promise = (async () => {
+            ensureSupabaseConfigured();
             const parsed = parseSql(sql, normalized.params);
             if (!parsed.table) throw new Error('Invalid table in query');
 
@@ -248,6 +261,7 @@ const db = {
         const normalized = normalizeArgs(params, callback);
 
         const promise = (async () => {
+            ensureSupabaseConfigured();
             const upperSql = sql.trim().toUpperCase();
 
             if (upperSql.startsWith('INSERT')) {

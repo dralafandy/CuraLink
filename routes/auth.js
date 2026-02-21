@@ -79,7 +79,30 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
         }
 
-        const isPasswordValid = bcrypt.compareSync(password, user.password);
+        let isPasswordValid = false;
+        const storedPassword = typeof user.password === 'string' ? user.password : '';
+
+        // Support legacy plain-text passwords without crashing login,
+        // then upgrade them to bcrypt on first successful login.
+        if (storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2y$')) {
+            try {
+                isPasswordValid = bcrypt.compareSync(password, storedPassword);
+            } catch (compareErr) {
+                console.error('Login bcrypt compare error:', compareErr.message);
+                isPasswordValid = false;
+            }
+        } else if (storedPassword) {
+            isPasswordValid = password === storedPassword;
+            if (isPasswordValid) {
+                try {
+                    const upgradedHash = bcrypt.hashSync(password, 10);
+                    await db.run('UPDATE users SET password = ? WHERE id = ?', [upgradedHash, user.id]);
+                } catch (upgradeErr) {
+                    console.error('Password hash upgrade failed:', upgradeErr.message);
+                }
+            }
+        }
+
         if (!isPasswordValid) {
             return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
         }
@@ -101,7 +124,24 @@ router.post('/login', async (req, res) => {
         });
     } catch (err) {
         console.error('Login error:', err);
-        return res.status(500).json({ error: 'خطأ في الخادم' });
+
+        const message = String(err?.message || '');
+        if (message.includes('Supabase configuration missing')) {
+            return res.status(500).json({
+                error: 'إعدادات قاعدة البيانات غير مكتملة على الخادم',
+                code: 'DB_CONFIG_MISSING'
+            });
+        }
+
+        // Common Postgres/Supabase permission errors
+        if (err?.code === '42501') {
+            return res.status(500).json({
+                error: 'الخادم غير مصرح له بالوصول إلى بيانات المستخدمين',
+                code: 'DB_PERMISSION_DENIED'
+            });
+        }
+
+        return res.status(500).json({ error: 'خطأ في الخادم', code: 'LOGIN_FAILED' });
     }
 });
 
