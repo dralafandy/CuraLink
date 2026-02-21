@@ -13,8 +13,16 @@ const JWT_SECRET = process.env.JWT_SECRET || 'curalink_secret_key_2024';
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, '../public/uploads/products');
-if (!fs.existsSync(uploadsDir)){
-    fs.mkdirSync(uploadsDir, { recursive: true });
+let uploadsWritable = true;
+try {
+    if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+} catch (err) {
+    uploadsWritable = false;
+    console.warn(
+        `Uploads directory unavailable (${err.code || 'UNKNOWN'}). Continuing without local image persistence.`
+    );
 }
 
 // Configuration
@@ -545,6 +553,8 @@ function notifyWishlistUsersAboutProductUpdate({
 // Image upload helper function
 function saveProductImage(base64Data, productId) {
     try {
+        if (!uploadsWritable) return null;
+
         // Check if it's a valid base64 image
         const matches = base64Data.match(/^data:image\/(\w+);base64,(.+)$/);
         if (!matches) {
@@ -575,7 +585,8 @@ function saveProductImage(base64Data, productId) {
 function deleteProductImage(imagePath) {
     try {
         if (imagePath && imagePath.startsWith('/uploads/products/')) {
-            const filepath = path.join(__dirname, '../public', imagePath);
+            const safeRelativePath = imagePath.replace(/^\/+/, '');
+            const filepath = path.join(__dirname, '../public', safeRelativePath);
             if (fs.existsSync(filepath)) {
                 fs.unlinkSync(filepath);
             }
@@ -621,6 +632,8 @@ function extensionFromContentType(contentType = '') {
 
 async function cacheExternalImage(imageUrl, productId) {
     try {
+        if (!uploadsWritable) return null;
+
         if (!isHttpImageUrl(imageUrl)) return null;
 
         const response = await fetch(imageUrl, {
