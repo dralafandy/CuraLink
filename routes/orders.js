@@ -6,7 +6,10 @@ const { createNotification } = require('../services/notification-service');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'curalink_secret_key_2024';
 const COMMISSION_RATE = 0.10;
-const CANCELLATION_WINDOW_MINUTES = Number.parseInt(process.env.CANCELLATION_WINDOW_MINUTES || '120', 10);
+const parsedCancellationWindow = Number.parseInt(process.env.CANCELLATION_WINDOW_MINUTES || '120', 10);
+const CANCELLATION_WINDOW_MINUTES = Number.isFinite(parsedCancellationWindow) && parsedCancellationWindow > 0
+    ? parsedCancellationWindow
+    : 120;
 
 const STATUS_TRANSITIONS = {
     pending: ['processing', 'cancelled'],
@@ -169,41 +172,65 @@ async function attachOrderItems(orders) {
 
 router.get('/', verifyToken, async (req, res) => {
     try {
-        const { status } = req.query;
-        let query;
-        let params;
+        const { status } = req.query || {};
+        let ordersQuery = db.supabase
+            .from('orders')
+            .select('*')
+            .eq('is_deleted', 0)
+            .order('created_at', { ascending: false });
 
-        if (req.user.role === 'admin') {
-            query = `
-                SELECT o.*, u1.username as pharmacy_name, u2.username as warehouse_name
-                FROM orders o
-                JOIN users u1 ON o.pharmacy_id = u1.id
-                JOIN users u2 ON o.warehouse_id = u2.id
-                WHERE o.is_deleted = 0
-            `;
-            params = [];
-        } else if (req.user.role === 'warehouse') {
-            query = `
-                SELECT o.*, u1.username as pharmacy_name, u2.username as warehouse_name
-                FROM orders o
-                JOIN users u1 ON o.pharmacy_id = u1.id
-                JOIN users u2 ON o.warehouse_id = u2.id
-                WHERE o.warehouse_id = ? AND o.is_deleted = 0
-            `;
-            params = [req.user.id];
-        } else {
+        if (req.user.role === 'warehouse') {
+            ordersQuery = ordersQuery.eq('warehouse_id', req.user.id);
+        } else if (req.user.role !== 'admin') {
             return res.status(403).json({ error: 'غير مصرح' });
         }
 
-        if (status) {
-            query += ' AND o.status = ?';
-            params.push(status);
+        if (typeof status === 'string' && status.trim()) {
+            ordersQuery = ordersQuery.eq('status', status.trim());
         }
-        query += ' ORDER BY o.created_at DESC';
 
-        const orders = await dbAll(query, params);
-        await attachOrderItems(orders);
-        return res.json({ orders });
+        const { data: orders, error: ordersError } = await ordersQuery;
+        if (ordersError) throw ordersError;
+
+        const safeOrders = orders || [];
+        if (safeOrders.length === 0) {
+            return res.json({ orders: [] });
+        }
+
+        const pharmacyIds = [...new Set(safeOrders.map((o) => o.pharmacy_id).filter(Boolean))];
+        const warehouseIds = [...new Set(safeOrders.map((o) => o.warehouse_id).filter(Boolean))];
+        const userIds = [...new Set([...pharmacyIds, ...warehouseIds])];
+
+        const { data: users, error: usersError } = await db.supabase
+            .from('users')
+            .select('id, username')
+            .in('id', userIds);
+        if (usersError) throw usersError;
+
+        const usersMap = new Map((users || []).map((u) => [u.id, u.username]));
+
+        const orderIds = safeOrders.map((o) => o.id);
+        const { data: items, error: itemsError } = await db.supabase
+            .from('order_items')
+            .select('*')
+            .in('order_id', orderIds);
+        if (itemsError) throw itemsError;
+
+        const itemsByOrderId = new Map();
+        for (const item of items || []) {
+            const list = itemsByOrderId.get(item.order_id) || [];
+            list.push(item);
+            itemsByOrderId.set(item.order_id, list);
+        }
+
+        const hydratedOrders = safeOrders.map((order) => ({
+            ...order,
+            pharmacy_name: usersMap.get(order.pharmacy_id) || null,
+            warehouse_name: usersMap.get(order.warehouse_id) || null,
+            items: itemsByOrderId.get(order.id) || []
+        }));
+
+        return res.json({ orders: hydratedOrders });
     } catch (err) {
         console.error('GET /orders error:', err.message);
         return res.status(500).json({ error: 'خطأ في الخادم' });
@@ -216,24 +243,55 @@ router.get('/my-orders', verifyToken, async (req, res) => {
     }
 
     try {
-        const { status } = req.query;
-        let query = `
-            SELECT o.*, u.username as warehouse_name
-            FROM orders o
-            JOIN users u ON o.warehouse_id = u.id
-            WHERE o.pharmacy_id = ? AND o.is_deleted = 0
-        `;
-        const params = [req.user.id];
+        const { status } = req.query || {};
+        let ordersQuery = db.supabase
+            .from('orders')
+            .select('*')
+            .eq('pharmacy_id', req.user.id)
+            .eq('is_deleted', 0)
+            .order('created_at', { ascending: false });
 
-        if (status) {
-            query += ' AND o.status = ?';
-            params.push(status);
+        if (typeof status === 'string' && status.trim()) {
+            ordersQuery = ordersQuery.eq('status', status.trim());
         }
-        query += ' ORDER BY o.created_at DESC';
 
-        const orders = await dbAll(query, params);
-        await attachOrderItems(orders);
-        return res.json({ orders });
+        const { data: orders, error: ordersError } = await ordersQuery;
+        if (ordersError) throw ordersError;
+
+        const safeOrders = orders || [];
+        if (safeOrders.length === 0) {
+            return res.json({ orders: [] });
+        }
+
+        const warehouseIds = [...new Set(safeOrders.map((o) => o.warehouse_id).filter(Boolean))];
+        const { data: warehouses, error: warehousesError } = await db.supabase
+            .from('users')
+            .select('id, username')
+            .in('id', warehouseIds);
+        if (warehousesError) throw warehousesError;
+
+        const warehouseMap = new Map((warehouses || []).map((w) => [w.id, w.username]));
+
+        const orderIds = safeOrders.map((o) => o.id);
+        const { data: items, error: itemsError } = await db.supabase
+            .from('order_items')
+            .select('*')
+            .in('order_id', orderIds);
+        if (itemsError) throw itemsError;
+
+        const itemsByOrderId = new Map();
+        for (const item of items || []) {
+            const list = itemsByOrderId.get(item.order_id) || [];
+            list.push(item);
+            itemsByOrderId.set(item.order_id, list);
+        }
+
+        const hydratedOrders = safeOrders.map((order) => ({
+            ...order,
+            warehouse_name: warehouseMap.get(order.warehouse_id) || null,
+            items: itemsByOrderId.get(order.id) || []
+        }));
+        return res.json({ orders: hydratedOrders });
     } catch (err) {
         console.error('GET /orders/my-orders error:', err.message);
         return res.status(500).json({ error: 'خطأ في الخادم' });
@@ -242,27 +300,47 @@ router.get('/my-orders', verifyToken, async (req, res) => {
 
 router.get('/returns/my', verifyToken, async (req, res) => {
     try {
-        let query = `
-            SELECT r.*, p.username AS pharmacy_name, w.username AS warehouse_name
-            FROM returns r
-            JOIN users p ON r.pharmacy_id = p.id
-            JOIN users w ON r.warehouse_id = w.id
-        `;
-        const params = [];
+        let returnsQuery = db.supabase
+            .from('returns')
+            .select('*')
+            .order('created_at', { ascending: false });
 
         if (req.user.role === 'pharmacy') {
-            query += ' WHERE r.pharmacy_id = ?';
-            params.push(req.user.id);
+            returnsQuery = returnsQuery.eq('pharmacy_id', req.user.id);
         } else if (req.user.role === 'warehouse') {
-            query += ' WHERE r.warehouse_id = ?';
-            params.push(req.user.id);
+            returnsQuery = returnsQuery.eq('warehouse_id', req.user.id);
         } else if (req.user.role !== 'admin') {
             return res.status(403).json({ error: 'غير مصرح' });
         }
 
-        query += ' ORDER BY r.created_at DESC';
-        const returnsRows = await dbAll(query, params);
-        return res.json({ returns: returnsRows });
+        const { data: returnsRows, error: returnsError } = await returnsQuery;
+        if (returnsError) throw returnsError;
+
+        const safeReturns = returnsRows || [];
+        if (safeReturns.length === 0) {
+            return res.json({ returns: [] });
+        }
+
+        const userIds = [...new Set(
+            safeReturns
+                .flatMap((r) => [r.pharmacy_id, r.warehouse_id])
+                .filter(Boolean)
+        )];
+        const { data: users, error: usersError } = await db.supabase
+            .from('users')
+            .select('id, username')
+            .in('id', userIds);
+        if (usersError) throw usersError;
+
+        const usersMap = new Map((users || []).map((u) => [u.id, u.username]));
+
+        const hydratedReturns = safeReturns.map((row) => ({
+            ...row,
+            pharmacy_name: usersMap.get(row.pharmacy_id) || null,
+            warehouse_name: usersMap.get(row.warehouse_id) || null
+        }));
+
+        return res.json({ returns: hydratedReturns });
     } catch (err) {
         console.error('GET /orders/returns/my error:', err.message);
         return res.status(500).json({ error: 'خطأ في الخادم' });
@@ -828,8 +906,20 @@ router.delete('/:id', verifyToken, async (req, res) => {
         }
 
         if (isPharmacy && order.cancellable_until) {
-            const deadline = new Date(order.cancellable_until);
-            if (new Date() > deadline) {
+            const createdAt = order.created_at ? new Date(order.created_at) : null;
+            let deadline = new Date(order.cancellable_until);
+
+            // Legacy safety: some bad rows were written with invalid/immediate cancellable_until.
+            if (
+                createdAt &&
+                !Number.isNaN(createdAt.getTime()) &&
+                !Number.isNaN(deadline.getTime()) &&
+                deadline <= createdAt
+            ) {
+                deadline = addMinutes(createdAt, CANCELLATION_WINDOW_MINUTES);
+            }
+
+            if (Number.isNaN(deadline.getTime()) || new Date() > deadline) {
                 return res.status(400).json({
                     error: 'انتهت نافذة الإلغاء لهذا الطلب',
                     code: 'CANCELLATION_WINDOW_EXPIRED'

@@ -129,11 +129,11 @@ function normalizeNotificationRow(row) {
 }
 
 function ensurePreferencesRow(userId, done) {
-    db.run(
-        'INSERT OR IGNORE INTO notification_preferences (user_id, created_at, updated_at) VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
-        [userId],
-        (err) => done(err)
-    );
+    db.supabase
+        .from('notification_preferences')
+        .upsert({ user_id: userId }, { onConflict: 'user_id', ignoreDuplicates: true })
+        .then(({ error }) => done(error || null))
+        .catch((err) => done(err));
 }
 
 router.get('/push/config', verifyToken, (req, res) => {
@@ -180,52 +180,40 @@ router.post('/push/test', verifyToken, async (req, res) => {
     }
 });
 
-router.get('/settings', verifyToken, (req, res) => {
-    ensurePreferencesRow(req.user.id, (insertErr) => {
+router.get('/settings', verifyToken, async (req, res) => {
+    ensurePreferencesRow(req.user.id, async (insertErr) => {
         if (insertErr) {
             return res.status(500).json({ error: 'خطأ في إعداد التفضيلات' });
         }
 
-        db.get(
-            `
-            SELECT
-                order_updates,
-                low_stock,
-                ratings,
-                returns,
-                system_alerts,
-                marketing,
-                email_enabled,
-                sms_enabled,
-                push_enabled,
-                updated_at
-            FROM notification_preferences
-            WHERE user_id = ?
-        `,
-            [req.user.id],
-            (err, row) => {
-                if (err) {
-                    return res.status(500).json({ error: 'خطأ في جلب تفضيلات الإشعارات' });
-                }
-                res.json({
-                    settings: row || {
-                        order_updates: 1,
-                        low_stock: 1,
-                        ratings: 1,
-                        returns: 1,
-                        system_alerts: 1,
-                        marketing: 1,
-                        email_enabled: 1,
-                        sms_enabled: 1,
-                        push_enabled: 1
-                    }
-                });
+        const { data, error } = await db.supabase
+            .from('notification_preferences')
+            .select('order_updates, low_stock, ratings, returns, system_alerts, marketing, email_enabled, sms_enabled, push_enabled, updated_at')
+            .eq('user_id', req.user.id)
+            .limit(1)
+            .maybeSingle();
+
+        if (error) {
+            return res.status(500).json({ error: 'خطأ في جلب تفضيلات الإشعارات' });
+        }
+
+        return res.json({
+            settings: data || {
+                order_updates: 1,
+                low_stock: 1,
+                ratings: 1,
+                returns: 1,
+                system_alerts: 1,
+                marketing: 1,
+                email_enabled: 1,
+                sms_enabled: 1,
+                push_enabled: 1
             }
-        );
+        });
     });
 });
 
-router.put('/settings', verifyToken, (req, res) => {
+router.put('/settings', verifyToken, async (req, res) => {
     const payload = req.body || {};
     const settings = {
         order_updates: normalizeBooleanInt(payload.order_updates),
@@ -239,216 +227,128 @@ router.put('/settings', verifyToken, (req, res) => {
         push_enabled: normalizeBooleanInt(payload.push_enabled)
     };
 
-    ensurePreferencesRow(req.user.id, (insertErr) => {
+    ensurePreferencesRow(req.user.id, async (insertErr) => {
         if (insertErr) {
             return res.status(500).json({ error: 'خطأ في تحديث التفضيلات' });
         }
 
-        db.run(
-            `
-            UPDATE notification_preferences
-            SET
-                order_updates = ?,
-                low_stock = ?,
-                ratings = ?,
-                returns = ?,
-                system_alerts = ?,
-                marketing = ?,
-                email_enabled = ?,
-                sms_enabled = ?,
-                push_enabled = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = ?
-        `,
-            [
-                settings.order_updates,
-                settings.low_stock,
-                settings.ratings,
-                settings.returns,
-                settings.system_alerts,
-                settings.marketing,
-                settings.email_enabled,
-                settings.sms_enabled,
-                settings.push_enabled,
-                req.user.id
-            ],
-            function(err) {
-                if (err) {
-                    return res.status(500).json({ error: 'خطأ في تحديث تفضيلات الإشعارات' });
-                }
+        const { error } = await db.supabase
+            .from('notification_preferences')
+            .update({
+                ...settings,
+                updated_at: new Date().toISOString()
+            })
+            .eq('user_id', req.user.id);
 
-                res.json({ message: 'تم تحديث التفضيلات بنجاح', settings });
-            }
-        );
+        if (error) {
+            return res.status(500).json({ error: 'خطأ في تحديث تفضيلات الإشعارات' });
+        }
+
+        return res.json({ message: 'تم تحديث التفضيلات بنجاح', settings });
     });
 });
 
-router.get('/', verifyToken, (req, res) => {
+router.get('/', verifyToken, async (req, res) => {
     const page = parsePositiveInt(req.query.page, 1);
     const limit = parsePositiveInt(req.query.limit, 20, 100);
     const offset = (page - 1) * limit;
     const grouped = normalizeBooleanInt(req.query.grouped, 0) === 1;
 
-    const whereParts = ['user_id = ?'];
-    const params = [req.user.id];
+    try {
+        let countQuery = db.supabase
+            .from('notifications')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', req.user.id);
 
-    if (req.query.read === '0' || req.query.read === '1') {
-        whereParts.push('read = ?');
-        params.push(parseInt(req.query.read, 10));
-    }
+        let listQuery = db.supabase
+            .from('notifications')
+            .select('id, user_id, type, message, related_id, read, created_at, metadata_json, read_at')
+            .eq('user_id', req.user.id);
 
-    if (typeof req.query.type === 'string' && req.query.type.trim()) {
-        whereParts.push('type = ?');
-        params.push(req.query.type.trim());
-    }
+        if (req.query.read === '0' || req.query.read === '1') {
+            const readValue = parseInt(req.query.read, 10);
+            countQuery = countQuery.eq('read', readValue);
+            listQuery = listQuery.eq('read', readValue);
+        }
 
-    const whereSql = whereParts.join(' AND ');
-    const extraSelectSql = `
-        n.metadata_json,
-        n.read_at,
-        p.name AS product_name,
-        p.quantity AS product_quantity,
-        p.price AS product_price,
-        o.status AS order_status,
-        o.total_amount AS order_total_amount,
-        o.expected_delivery_date AS order_expected_delivery_date,
-        r.status AS return_status,
-        r.reason AS return_reason,
-        i.status AS invoice_status,
-        i.amount AS invoice_amount,
-        rt.rating AS rating_value,
-        rt.comment AS rating_comment
-    `;
-    const joinsSql = `
-        LEFT JOIN products p ON p.id = n.related_id AND n.type IN ('low_stock', 'wishlist_price_change', 'wishlist_offer_added')
-        LEFT JOIN orders o ON o.id = n.related_id AND n.type IN ('new_order', 'order_update', 'sms_queued')
-        LEFT JOIN returns r ON r.id = n.related_id AND n.type = 'return_request'
-        LEFT JOIN invoices i ON i.id = n.related_id AND n.type = 'email_queued'
-        LEFT JOIN ratings rt ON rt.id = n.related_id AND n.type = 'new_rating'
-    `;
+        if (typeof req.query.type === 'string' && req.query.type.trim()) {
+            const typeValue = req.query.type.trim();
+            countQuery = countQuery.eq('type', typeValue);
+            listQuery = listQuery.eq('type', typeValue);
+        }
 
-    let listSql;
-    let countSql;
-    let listParams;
-    let countParams;
-
-    if (grouped) {
-        listSql = `
-            SELECT
-                g.id,
-                g.user_id,
-                g.type,
-                g.message,
-                g.related_id,
-                g.read,
-                g.created_at,
-                g.grouped_count,
-                ${extraSelectSql}
-            FROM (
-                SELECT
-                    MAX(id) AS id,
-                    user_id,
-                    type,
-                    message,
-                    related_id,
-                    read,
-                    MAX(created_at) AS created_at,
-                    COUNT(*) AS grouped_count
-                FROM notifications
-                WHERE ${whereSql}
-                GROUP BY type, message, COALESCE(related_id, -1), read
-            ) g
-            JOIN notifications n ON n.id = g.id
-            ${joinsSql}
-            ORDER BY datetime(g.created_at) DESC
-            LIMIT ? OFFSET ?
-        `;
-
-        countSql = `
-            SELECT COUNT(*) AS total
-            FROM (
-                SELECT 1
-                FROM notifications
-                WHERE ${whereSql}
-                GROUP BY type, message, COALESCE(related_id, -1), read
-            ) grouped
-        `;
-
-        listParams = [...params, limit, offset];
-        countParams = [...params];
-    } else {
-        listSql = `
-            SELECT
-                n.id,
-                n.user_id,
-                n.type,
-                n.message,
-                n.related_id,
-                n.read,
-                n.created_at,
-                1 AS grouped_count,
-                ${extraSelectSql}
-            FROM notifications n
-            ${joinsSql}
-            WHERE ${whereSql}
-            ORDER BY datetime(n.created_at) DESC, n.id DESC
-            LIMIT ? OFFSET ?
-        `;
-
-        countSql = `SELECT COUNT(*) AS total FROM notifications WHERE ${whereSql}`;
-        listParams = [...params, limit, offset];
-        countParams = [...params];
-    }
-
-    db.get(countSql, countParams, (countErr, countRow) => {
-        if (countErr) {
+        const { count, error: countError } = await countQuery;
+        if (countError) {
             return res.status(500).json({ error: 'خطأ في الخادم' });
         }
 
-        db.all(listSql, listParams, (listErr, notifications) => {
-            if (listErr) {
-                return res.status(500).json({ error: 'خطأ في الخادم' });
-            }
+        const { data: rows, error: listError } = await listQuery
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+        if (listError) {
+            return res.status(500).json({ error: 'خطأ في الخادم' });
+        }
 
-            const normalizedNotifications = notifications.map(normalizeNotificationRow);
-            const total = countRow?.total || 0;
-            const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+        let notifications = (rows || []).map((row) => ({
+            ...row,
+            grouped_count: 1
+        }));
 
-            res.json({
-                notifications: normalizedNotifications,
-                pagination: {
-                    page,
-                    limit,
-                    total,
-                    total_pages: totalPages,
-                    has_next: page < totalPages,
-                    has_prev: page > 1
-                },
-                filters: {
-                    read: req.query.read === '0' || req.query.read === '1' ? parseInt(req.query.read, 10) : null,
-                    type: typeof req.query.type === 'string' && req.query.type.trim() ? req.query.type.trim() : null,
-                    grouped
+        if (grouped) {
+            const groupedMap = new Map();
+            for (const n of notifications) {
+                const key = `${n.type}::${n.message}::${n.related_id ?? 'null'}::${n.read}`;
+                if (!groupedMap.has(key)) {
+                    groupedMap.set(key, { ...n, grouped_count: 1 });
+                } else {
+                    groupedMap.get(key).grouped_count += 1;
                 }
-            });
+            }
+            notifications = [...groupedMap.values()];
+        }
+
+        const normalizedNotifications = notifications.map(normalizeNotificationRow);
+        const total = count || 0;
+        const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+        return res.json({
+            notifications: normalizedNotifications,
+            pagination: {
+                page,
+                limit,
+                total,
+                total_pages: totalPages,
+                has_next: page < totalPages,
+                has_prev: page > 1
+            },
+            filters: {
+                read: req.query.read === '0' || req.query.read === '1' ? parseInt(req.query.read, 10) : null,
+                type: typeof req.query.type === 'string' && req.query.type.trim() ? req.query.type.trim() : null,
+                grouped
+            }
         });
-    });
+    } catch {
+        return res.status(500).json({ error: 'خطأ في الخادم' });
+    }
 });
 
 router.get('/unread-count', verifyToken, (req, res) => {
-    db.get(
-        `
-        SELECT COUNT(*) AS count
-        FROM notifications
-        WHERE user_id = ? AND read = 0
-    `,
-        [req.user.id],
-        (err, result) => {
-            if (err) {
+    db.supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', req.user.id)
+        .eq('read', 0)
+        .then(({ count, error }) => {
+            if (error) {
+                console.error('GET /notifications/unread-count error:', error);
                 return res.status(500).json({ error: 'خطأ في الخادم' });
             }
-            res.json({ count: result.count });
-        }
-    );
+            return res.json({ count: count || 0 });
+        })
+        .catch((err) => {
+            console.error('GET /notifications/unread-count unhandled error:', err);
+            return res.status(500).json({ error: 'خطأ في الخادم' });
+        });
 });
 
 router.put('/read-group', verifyToken, (req, res) => {
@@ -463,102 +363,95 @@ router.put('/read-group', verifyToken, (req, res) => {
         return res.status(400).json({ error: 'النوع والرسالة مطلوبان' });
     }
 
-    const sql = relatedId === null
-        ? `
-            UPDATE notifications
-            SET read = 1, read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
-            WHERE user_id = ? AND type = ? AND message = ? AND related_id IS NULL
-        `
-        : `
-            UPDATE notifications
-            SET read = 1, read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
-            WHERE user_id = ? AND type = ? AND message = ? AND related_id = ?
-        `;
-    const params = relatedId === null
-        ? [req.user.id, type, message]
-        : [req.user.id, type, message, relatedId];
+    let query = db.supabase
+        .from('notifications')
+        .update({ read: 1, read_at: new Date().toISOString() })
+        .eq('user_id', req.user.id)
+        .eq('type', type)
+        .eq('message', message)
+        .select('id');
 
-    db.run(sql, params, function(err) {
-        if (err) {
-            return res.status(500).json({ error: 'خطأ في تحديث مجموعة الإشعارات' });
-        }
-        res.json({ message: 'تم تحديث مجموعة الإشعارات بنجاح', updated_count: this.changes || 0 });
-    });
+    query = relatedId === null ? query.is('related_id', null) : query.eq('related_id', relatedId);
+
+    query
+        .then(({ data, error }) => {
+            if (error) {
+                return res.status(500).json({ error: 'خطأ في تحديث مجموعة الإشعارات' });
+            }
+            res.json({ message: 'تم تحديث مجموعة الإشعارات بنجاح', updated_count: (data || []).length });
+        })
+        .catch(() => res.status(500).json({ error: 'خطأ في تحديث مجموعة الإشعارات' }));
 });
 
 router.put('/:id/read', verifyToken, (req, res) => {
-    db.run(
-        `
-        UPDATE notifications
-        SET read = 1, read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
-        WHERE id = ? AND user_id = ?
-    `,
-        [req.params.id, req.user.id],
-        function(err) {
-            if (err) {
+    db.supabase
+        .from('notifications')
+        .update({ read: 1, read_at: new Date().toISOString() })
+        .eq('id', req.params.id)
+        .eq('user_id', req.user.id)
+        .select('id')
+        .then(({ data, error }) => {
+            if (error) {
                 return res.status(500).json({ error: 'خطأ في تحديث الإشعار' });
             }
-            if (this.changes === 0) {
+            if (!data || data.length === 0) {
                 return res.status(404).json({ error: 'الإشعار غير موجود' });
             }
-            res.json({ message: 'تم تحديث الإشعار بنجاح' });
-        }
-    );
+            return res.json({ message: 'تم تحديث الإشعار بنجاح' });
+        })
+        .catch(() => res.status(500).json({ error: 'خطأ في تحديث الإشعار' }));
 });
 
 router.put('/read-all', verifyToken, (req, res) => {
-    db.run(
-        `
-        UPDATE notifications
-        SET read = 1, read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
-        WHERE user_id = ?
-    `,
-        [req.user.id],
-        function(err) {
-            if (err) {
+    db.supabase
+        .from('notifications')
+        .update({ read: 1, read_at: new Date().toISOString() })
+        .eq('user_id', req.user.id)
+        .then(({ error }) => {
+            if (error) {
                 return res.status(500).json({ error: 'خطأ في تحديث الإشعارات' });
             }
-            res.json({ message: 'تم تحديث جميع الإشعارات بنجاح' });
-        }
-    );
+            return res.json({ message: 'تم تحديث جميع الإشعارات بنجاح' });
+        })
+        .catch(() => res.status(500).json({ error: 'خطأ في تحديث الإشعارات' }));
 });
 
 router.delete('/read', verifyToken, (req, res) => {
-    db.run(
-        `
-        DELETE FROM notifications
-        WHERE user_id = ? AND read = 1
-    `,
-        [req.user.id],
-        function(err) {
-            if (err) {
+    db.supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', req.user.id)
+        .eq('read', 1)
+        .select('id')
+        .then(({ data, error }) => {
+            if (error) {
                 return res.status(500).json({ error: 'خطأ في حذف الإشعارات المقروءة' });
             }
-            res.json({
+            return res.json({
                 message: 'تم حذف الإشعارات المقروءة بنجاح',
-                deleted_count: this.changes || 0
+                deleted_count: (data || []).length
             });
-        }
-    );
+        })
+        .catch(() => res.status(500).json({ error: 'خطأ في حذف الإشعارات المقروءة' }));
 });
 
 router.delete('/:id', verifyToken, (req, res) => {
-    db.run(
-        `
-        DELETE FROM notifications
-        WHERE id = ? AND user_id = ?
-    `,
-        [req.params.id, req.user.id],
-        function(err) {
-            if (err) {
+    db.supabase
+        .from('notifications')
+        .delete()
+        .eq('id', req.params.id)
+        .eq('user_id', req.user.id)
+        .select('id')
+        .then(({ data, error }) => {
+            if (error) {
                 return res.status(500).json({ error: 'خطأ في حذف الإشعار' });
             }
-            if (this.changes === 0) {
+            if (!data || data.length === 0) {
                 return res.status(404).json({ error: 'الإشعار غير موجود' });
             }
-            res.json({ message: 'تم حذف الإشعار بنجاح' });
-        }
-    );
+            return res.json({ message: 'تم حذف الإشعار بنجاح' });
+        })
+        .catch(() => res.status(500).json({ error: 'خطأ في حذف الإشعار' }));
 });
 
 module.exports = router;

@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -12,7 +14,7 @@ const ratingRoutes = require('./routes/ratings');
 const notificationRoutes = require('./routes/notifications');
 const wishlistRoutes = require('./routes/wishlist');
 
-// Initialize database (this will also create tables and sample data)
+// Initialize Supabase client
 require('./database/db');
 
 const app = express();
@@ -49,6 +51,9 @@ app.get('*', (req, res) => {
 app.use((err, req, res, next) => {
     if (err && err.type === 'entity.too.large') {
         return res.status(413).json({ error: 'Ø­Ø¬Ù… Ø§Ù„ØµÙˆØ±Ø© ÙƒØ¨ÙŠØ± Ø¬Ø¯Ø§Ù‹. Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ 2MB' });
+    }
+    if (err && (err.code === 'LIMIT_FILE_SIZE' || err.name === 'MulterError')) {
+        return res.status(413).json({ error: 'ÍÌã Çáãáİ ßÈíÑ ÌÏÇğ. ÇáÍÏ ÇáÃŞÕì 10MB' });
     }
 
     console.error(err.stack);

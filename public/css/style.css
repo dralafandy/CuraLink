@@ -3880,7 +3880,7 @@ body {
         bottom: 8px;
         z-index: 1300;
         display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
+        grid-template-columns: repeat(var(--mobile-nav-columns, 5), minmax(0, 1fr));
         align-items: center;
         gap: 4px;
         padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
@@ -3917,6 +3917,10 @@ body {
     .mobile-nav-item.active {
         color: #ffffff;
         background: linear-gradient(135deg, var(--primary) 0%, #0284c7 100%);
+    }
+
+    .mobile-nav-item--logout {
+        color: #fda4af;
     }
 }
 

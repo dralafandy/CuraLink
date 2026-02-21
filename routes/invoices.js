@@ -46,28 +46,49 @@ function canViewInvoice(user, invoice) {
 }
 
 async function getInvoiceWithContext(invoiceId) {
-    return dbGet(
-        `
-            SELECT
-                i.*,
-                o.id AS order_id,
-                o.pharmacy_id,
-                o.warehouse_id,
-                o.status AS order_status,
-                p.username AS pharmacy_name,
-                p.email AS pharmacy_email,
-                p.address AS pharmacy_address,
-                w.username AS warehouse_name,
-                w.email AS warehouse_email,
-                w.address AS warehouse_address
-            FROM invoices i
-            JOIN orders o ON i.order_id = o.id
-            JOIN users p ON p.id = o.pharmacy_id
-            JOIN users w ON w.id = o.warehouse_id
-            WHERE i.id = ?
-        `,
-        [invoiceId]
-    );
+    const { data: invoice, error: invoiceError } = await db.supabase
+        .from('invoices')
+        .select('*')
+        .eq('id', invoiceId)
+        .maybeSingle();
+    if (invoiceError) throw invoiceError;
+    if (!invoice) return null;
+
+    const { data: order, error: orderError } = await db.supabase
+        .from('orders')
+        .select('id, pharmacy_id, warehouse_id, status')
+        .eq('id', invoice.order_id)
+        .maybeSingle();
+    if (orderError) throw orderError;
+    if (!order) return null;
+
+    const userIds = [order.pharmacy_id, order.warehouse_id].filter(Boolean);
+    let usersMap = new Map();
+    if (userIds.length) {
+        const { data: users, error: usersError } = await db.supabase
+            .from('users')
+            .select('id, username, email, address')
+            .in('id', userIds);
+        if (usersError) throw usersError;
+        usersMap = new Map((users || []).map((user) => [user.id, user]));
+    }
+
+    const pharmacy = usersMap.get(order.pharmacy_id) || {};
+    const warehouse = usersMap.get(order.warehouse_id) || {};
+
+    return {
+        ...invoice,
+        order_id: order.id,
+        pharmacy_id: order.pharmacy_id,
+        warehouse_id: order.warehouse_id,
+        order_status: order.status,
+        pharmacy_name: pharmacy.username || null,
+        pharmacy_email: pharmacy.email || null,
+        pharmacy_address: pharmacy.address || null,
+        warehouse_name: warehouse.username || null,
+        warehouse_email: warehouse.email || null,
+        warehouse_address: warehouse.address || null
+    };
 }
 
 async function getInvoicePaymentsSummary(invoiceId) {
@@ -117,17 +138,50 @@ async function syncInvoiceStatusFromPayments(invoice) {
 router.get('/', verifyToken, async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'ØºÙŠØ± Ù…ØµØ±Ø­' });
     try {
-        const invoices = await dbAll(
-            `
-                SELECT i.*, o.id as order_id, u1.username as pharmacy_name, u2.username as warehouse_name
-                FROM invoices i
-                JOIN orders o ON i.order_id = o.id
-                JOIN users u1 ON o.pharmacy_id = u1.id
-                JOIN users u2 ON o.warehouse_id = u2.id
-                ORDER BY i.created_at DESC
-            `
-        );
-        return res.json({ invoices });
+        const { data: invoices, error: invoicesError } = await db.supabase
+            .from('invoices')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if (invoicesError) throw invoicesError;
+
+        const safeInvoices = invoices || [];
+        if (safeInvoices.length === 0) {
+            return res.json({ invoices: [] });
+        }
+
+        const orderIds = [...new Set(safeInvoices.map((i) => i.order_id).filter(Boolean))];
+        const { data: orders, error: ordersError } = await db.supabase
+            .from('orders')
+            .select('id, pharmacy_id, warehouse_id')
+            .in('id', orderIds);
+        if (ordersError) throw ordersError;
+
+        const safeOrders = orders || [];
+        const userIds = [...new Set(
+            safeOrders
+                .flatMap((o) => [o.pharmacy_id, o.warehouse_id])
+                .filter(Boolean)
+        )];
+        const { data: users, error: usersError } = await db.supabase
+            .from('users')
+            .select('id, username')
+            .in('id', userIds);
+        if (usersError) throw usersError;
+
+        const ordersMap = new Map(safeOrders.map((o) => [o.id, o]));
+        const usersMap = new Map((users || []).map((u) => [u.id, u.username]));
+
+        const hydratedInvoices = safeInvoices.map((invoice) => {
+            const order = ordersMap.get(invoice.order_id);
+            return {
+                ...invoice,
+                order_id: invoice.order_id,
+                pharmacy_name: order ? (usersMap.get(order.pharmacy_id) || null) : null,
+                warehouse_name: order ? (usersMap.get(order.warehouse_id) || null) : null
+            };
+        });
+
+        return res.json({ invoices: hydratedInvoices });
     } catch (err) {
         console.error('GET /invoices error:', err.message);
         return res.status(500).json({ error: 'Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø®Ø§Ø¯Ù…' });
@@ -136,28 +190,58 @@ router.get('/', verifyToken, async (req, res) => {
 
 router.get('/my-invoices', verifyToken, async (req, res) => {
     try {
-        let query = `
-            SELECT i.*, o.id as order_id, u1.username as pharmacy_name, u2.username as warehouse_name
-            FROM invoices i
-            JOIN orders o ON i.order_id = o.id
-            JOIN users u1 ON o.pharmacy_id = u1.id
-            JOIN users u2 ON o.warehouse_id = u2.id
-        `;
-        const params = [];
+        let ordersQuery = db.supabase
+            .from('orders')
+            .select('id, pharmacy_id, warehouse_id');
 
         if (req.user.role === 'warehouse') {
-            query += ' WHERE o.warehouse_id = ?';
-            params.push(req.user.id);
+            ordersQuery = ordersQuery.eq('warehouse_id', req.user.id);
         } else if (req.user.role === 'pharmacy') {
-            query += ' WHERE o.pharmacy_id = ?';
-            params.push(req.user.id);
+            ordersQuery = ordersQuery.eq('pharmacy_id', req.user.id);
         } else if (req.user.role !== 'admin') {
             return res.status(403).json({ error: 'ØºÙŠØ± Ù…ØµØ±Ø­' });
         }
 
-        query += ' ORDER BY i.created_at DESC';
-        const invoices = await dbAll(query, params);
-        return res.json({ invoices });
+        const { data: orders, error: ordersError } = await ordersQuery;
+        if (ordersError) throw ordersError;
+
+        const safeOrders = orders || [];
+        if (safeOrders.length === 0) {
+            return res.json({ invoices: [] });
+        }
+
+        const orderIds = safeOrders.map((o) => o.id);
+        const { data: invoices, error: invoicesError } = await db.supabase
+            .from('invoices')
+            .select('*')
+            .in('order_id', orderIds)
+            .order('created_at', { ascending: false });
+        if (invoicesError) throw invoicesError;
+
+        const pharmacyIds = [...new Set(safeOrders.map((o) => o.pharmacy_id).filter(Boolean))];
+        const warehouseIds = [...new Set(safeOrders.map((o) => o.warehouse_id).filter(Boolean))];
+        const userIds = [...new Set([...pharmacyIds, ...warehouseIds])];
+
+        const { data: users, error: usersError } = await db.supabase
+            .from('users')
+            .select('id, username')
+            .in('id', userIds);
+        if (usersError) throw usersError;
+
+        const ordersMap = new Map(safeOrders.map((o) => [o.id, o]));
+        const usersMap = new Map((users || []).map((u) => [u.id, u.username]));
+
+        const hydratedInvoices = (invoices || []).map((invoice) => {
+            const order = ordersMap.get(invoice.order_id);
+            return {
+                ...invoice,
+                order_id: invoice.order_id,
+                pharmacy_name: order ? (usersMap.get(order.pharmacy_id) || null) : null,
+                warehouse_name: order ? (usersMap.get(order.warehouse_id) || null) : null
+            };
+        });
+
+        return res.json({ invoices: hydratedInvoices });
     } catch (err) {
         console.error('GET /invoices/my-invoices error:', err.message);
         return res.status(500).json({ error: 'Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø®Ø§Ø¯Ù…' });
@@ -535,15 +619,28 @@ router.get('/:id/pdf', verifyToken, async (req, res) => {
         if (!invoice) return res.status(404).json({ error: 'Ø§Ù„ÙØ§ØªÙˆØ±Ø© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©' });
         if (!canViewInvoice(req.user, invoice)) return res.status(403).json({ error: 'ØºÙŠØ± Ù…ØµØ±Ø­' });
 
-        const orderItems = await dbAll(
-            `
-                SELECT oi.*, p.name AS product_name
-                FROM order_items oi
-                LEFT JOIN products p ON p.id = oi.product_id
-                WHERE oi.order_id = ?
-            `,
-            [invoice.order_id]
-        );
+        const { data: orderItemsData, error: orderItemsError } = await db.supabase
+            .from('order_items')
+            .select('id, order_id, product_id, quantity, price')
+            .eq('order_id', invoice.order_id);
+        if (orderItemsError) throw orderItemsError;
+
+        const safeOrderItems = orderItemsData || [];
+        const productIds = [...new Set(safeOrderItems.map((item) => item.product_id).filter(Boolean))];
+        let productsMap = new Map();
+        if (productIds.length) {
+            const { data: products, error: productsError } = await db.supabase
+                .from('products')
+                .select('id, name')
+                .in('id', productIds);
+            if (productsError) throw productsError;
+            productsMap = new Map((products || []).map((product) => [product.id, product.name]));
+        }
+
+        const orderItems = safeOrderItems.map((item) => ({
+            ...item,
+            product_name: productsMap.get(item.product_id) || null
+        }));
         const paymentSummary = await getInvoicePaymentsSummary(invoiceId);
         const invoiceTotal = getInvoiceTargetAmount(invoice);
         const effectivePaid = Number(paymentSummary.total_paid || 0);

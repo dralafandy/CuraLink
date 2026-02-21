@@ -17,16 +17,8 @@ function getUserFromToken(req) {
     }
 }
 
-function getUserProfileById(userId, callback) {
-    db.get(
-        'SELECT id, username, email, phone, address, role, rating, rating_count, created_at FROM users WHERE id = ?',
-        [userId],
-        callback
-    );
-}
-
 // Register
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
     const { username, email, password, phone, address, role } = req.body;
 
     if (!username || !email || !password || !role) {
@@ -37,49 +29,51 @@ router.post('/register', (req, res) => {
         return res.status(400).json({ error: 'الدور غير صالح' });
     }
 
-    const hashedPassword = bcrypt.hashSync(password, 10);
+    try {
+        const hashedPassword = bcrypt.hashSync(password, 10);
 
-    db.run(
-        'INSERT INTO users (username, email, password, phone, address, role) VALUES (?, ?, ?, ?, ?, ?)',
-        [username, email, hashedPassword, phone, address, role],
-        function(err) {
-            if (err) {
-                if (err.message.includes('UNIQUE')) {
-                    return res.status(400).json({ error: 'اسم المستخدم أو البريد الإلكتروني موجود مسبقًا' });
-                }
-                return res.status(500).json({ error: 'خطأ في الخادم' });
-            }
-
-            const token = jwt.sign({ id: this.lastID, role }, JWT_SECRET, { expiresIn: '24h' });
-
-            return res.json({
-                message: 'تم التسجيل بنجاح',
-                token,
-                user: {
-                    id: this.lastID,
-                    username,
-                    email,
-                    role,
-                    phone: phone || null,
-                    address: address || null
-                }
-            });
+        // Check if user exists
+        const existingUser = await db.get('SELECT id FROM users WHERE email = ? OR username = ?', [email, username]);
+        
+        if (existingUser) {
+            return res.status(400).json({ error: 'اسم المستخدم أو البريد الإلكتروني موجود مسبقًا' });
         }
-    );
+
+        const result = await db.run(
+            'INSERT INTO users (username, email, password, phone, address, role) VALUES (?, ?, ?, ?, ?, ?)',
+            [username, email, hashedPassword, phone || null, address || null, role]
+        );
+
+        const token = jwt.sign({ id: result.lastID, role }, JWT_SECRET, { expiresIn: '24h' });
+
+        return res.json({
+            message: 'تم التسجيل بنجاح',
+            token,
+            user: {
+                id: result.lastID,
+                username,
+                email,
+                role,
+                phone: phone || null,
+                address: address || null
+            }
+        });
+    } catch (err) {
+        console.error('Register error:', err);
+        return res.status(500).json({ error: 'خطأ في الخادم' });
+    }
 });
 
 // Login
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
         return res.status(400).json({ error: 'البريد الإلكتروني وكلمة المرور مطلوبان' });
     }
 
-    db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
-        if (err) {
-            return res.status(500).json({ error: 'خطأ في الخادم' });
-        }
+    try {
+        const user = await db.get('SELECT * FROM users WHERE email = ?', [email]);
 
         if (!user) {
             return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
@@ -105,31 +99,38 @@ router.post('/login', (req, res) => {
                 rating: user.rating
             }
         });
-    });
+    } catch (err) {
+        console.error('Login error:', err);
+        return res.status(500).json({ error: 'خطأ في الخادم' });
+    }
 });
 
 // Get current user
-router.get('/me', (req, res) => {
+router.get('/me', async (req, res) => {
     const decoded = getUserFromToken(req);
     if (!decoded) {
         return res.status(401).json({ error: 'غير مصرح' });
     }
 
-    return getUserProfileById(decoded.id, (err, user) => {
-        if (err) {
-            return res.status(500).json({ error: 'خطأ في الخادم' });
-        }
+    try {
+        const user = await db.get(
+            'SELECT id, username, email, phone, address, role, rating, rating_count, created_at FROM users WHERE id = ?',
+            [decoded.id]
+        );
 
         if (!user) {
             return res.status(404).json({ error: 'المستخدم غير موجود' });
         }
 
         return res.json({ user });
-    });
+    } catch (err) {
+        console.error('Get user error:', err);
+        return res.status(500).json({ error: 'خطأ في الخادم' });
+    }
 });
 
 // Update current user profile
-router.put('/me', (req, res) => {
+router.put('/me', async (req, res) => {
     const decoded = getUserFromToken(req);
     if (!decoded) {
         return res.status(401).json({ error: 'غير مصرح' });
@@ -137,45 +138,44 @@ router.put('/me', (req, res) => {
 
     const hasPhone = Object.prototype.hasOwnProperty.call(req.body || {}, 'phone');
     const hasAddress = Object.prototype.hasOwnProperty.call(req.body || {}, 'address');
+    
     if (!hasPhone && !hasAddress) {
         return res.status(400).json({ error: 'لا توجد بيانات للتحديث' });
     }
 
-    return getUserProfileById(decoded.id, (err, user) => {
-        if (err) return res.status(500).json({ error: 'خطأ في الخادم' });
-        if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
+    try {
+        const user = await db.get('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        
+        if (!user) {
+            return res.status(404).json({ error: 'المستخدم غير موجود' });
+        }
 
         const normalizedPhone = hasPhone ? String(req.body.phone || '').trim() : user.phone;
         const normalizedAddress = hasAddress ? String(req.body.address || '').trim() : user.address;
 
-        return db.run(
+        await db.run(
             'UPDATE users SET phone = ?, address = ? WHERE id = ?',
-            [normalizedPhone || null, normalizedAddress || null, decoded.id],
-            function(updateErr) {
-                if (updateErr) {
-                    return res.status(500).json({ error: 'خطأ في تحديث البيانات' });
-                }
-
-                return getUserProfileById(decoded.id, (profileErr, updatedUser) => {
-                    if (profileErr) return res.status(500).json({ error: 'خطأ في الخادم' });
-                    return res.json({ message: 'تم تحديث الملف الشخصي بنجاح', user: updatedUser });
-                });
-            }
+            [normalizedPhone || null, normalizedAddress || null, decoded.id]
         );
-    });
+
+        const updatedUser = await db.get('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        
+        return res.json({ message: 'تم تحديث الملف الشخصي بنجاح', user: updatedUser });
+    } catch (err) {
+        console.error('Update profile error:', err);
+        return res.status(500).json({ error: 'خطأ في تحديث البيانات' });
+    }
 });
 
 // Get all warehouses (for pharmacy)
-router.get('/warehouses', (req, res) => {
-    db.all('SELECT id, username, phone, address, rating, rating_count FROM users WHERE role = ?',
-        ['warehouse'],
-        (err, users) => {
-            if (err) {
-                return res.status(500).json({ error: 'خطأ في الخادم' });
-            }
-            return res.json({ warehouses: users });
-        }
-    );
+router.get('/warehouses', async (req, res) => {
+    try {
+        const users = await db.all('SELECT id, username, phone, address, rating, rating_count FROM users WHERE role = ?', ['warehouse']);
+        return res.json({ warehouses: users });
+    } catch (err) {
+        console.error('Get warehouses error:', err);
+        return res.status(500).json({ error: 'خطأ في الخادم' });
+    }
 });
 
 module.exports = router;

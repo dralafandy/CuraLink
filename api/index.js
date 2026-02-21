@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -44,6 +46,9 @@ app.get('/api/health', (req, res) => {
 app.use((err, req, res, next) => {
     if (err && err.type === 'entity.too.large') {
         return res.status(413).json({ error: 'Ø­Ø¬Ù… Ø§Ù„ØµÙˆØ±Ø© ÙƒØ¨ÙŠØ± Ø¬Ø¯Ø§Ù‹. Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ 2MB' });
+    }
+    if (err && (err.code === 'LIMIT_FILE_SIZE' || err.name === 'MulterError')) {
+        return res.status(413).json({ error: 'ÍÌã Çáãáİ ßÈíÑ ÌÏÇğ. ÇáÍÏ ÇáÃŞÕì 10MB' });
     }
 
     console.error('Server Error:', err.stack);

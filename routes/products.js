@@ -33,7 +33,7 @@ const CONFIG = {
 const storage = multer.memoryStorage();
 const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
     fileFilter: (req, file, cb) => {
         const allowedTypes = [
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -55,6 +55,8 @@ const upload = multer({
 const COLUMN_MAPPING = {
     'name': 'name',
     'الاسم': 'name',
+    'الاسم العربي': 'name',
+    'الاسم العربى': 'name',
     'اسم المنتج': 'name',
     'الصنف': 'name',
     'description': 'description',
@@ -66,6 +68,7 @@ const COLUMN_MAPPING = {
     'المادة الفعالة': 'active_ingredient',
     'price': 'price',
     'السعر': 'price',
+    'سعر البيع': 'price',
     'سعر ج': 'price',
     'سعرج': 'price',
     'quantity': 'quantity',
@@ -88,12 +91,43 @@ const COLUMN_MAPPING = {
     'الكود': 'product_code',
     'code': 'product_code',
     'prod_name': 'name',
+    'الاسم الانجليزي': 'trade_name_en',
+    'الاسم الانجليزى': 'trade_name_en',
     'price_1': 'price',
     'discount_a': 'discount_percent',
     'prod_id': 'product_code',
     'prod_code': 'product_code',
     'qty': 'quantity',
-    'quantity_1': 'quantity'
+    'quantity_1': 'quantity',
+
+    // Egyptian_Drugs_Arabic_English.xlsx
+    'الاسم التجاري (عربي)': 'name',
+    'trade name (en)': 'trade_name_en',
+    'الاسم العلمي (عربي)': 'active_ingredient',
+    'generic name (en)': 'generic_name_en',
+    'الشركة المصنعة': 'manufacturer',
+    'dosage form': 'dosage_form',
+    'التركيز / strength': 'strength',
+    'السعر التقريبي (egp)': 'price',
+    'الاستخدامات': 'uses',
+
+    // medicines_100_with_images.xlsx
+    'brand name (en)': 'name',
+    'active ingredient': 'active_ingredient',
+    'price (egp)': 'price',
+    'stock qty': 'quantity',
+    'discount (%)': 'discount_percent',
+    'image url': 'image',
+    'notes': 'notes',
+
+    // Internal normalized keys (keep during normalizeRowData pass)
+    'trade_name_en': 'trade_name_en',
+    'generic_name_en': 'generic_name_en',
+    'manufacturer': 'manufacturer',
+    'dosage_form': 'dosage_form',
+    'strength': 'strength',
+    'uses': 'uses',
+    'notes': 'notes'
 };
 
 function normalizeHeaderName(header) {
@@ -171,6 +205,38 @@ function buildFallbackRowFromLegacySheet(row = []) {
 
     if (Number.isFinite(quantity)) {
         out.quantity = quantity;
+    }
+    if (productCode !== undefined && productCode !== null && String(productCode).trim() !== '') {
+        out.product_code = productCode;
+    }
+
+    return out;
+}
+
+function buildFallbackRowFromDrugListSheet(row = []) {
+    // drug list.xls observed structure:
+    // price(0), manufacturer(3), english_name(8), arabic_name(13), code(18)
+    const price = Number.parseFloat(row[0]);
+    const arabicName = decodePotentialArabicMojibake(row[13]);
+    const englishName = decodePotentialArabicMojibake(row[8]);
+    const manufacturer = decodePotentialArabicMojibake(row[3]);
+    const productCode = row[18];
+
+    const primaryName = String(arabicName || englishName || '').trim();
+    if (!primaryName || !Number.isFinite(price)) {
+        return null;
+    }
+
+    const out = {
+        name: primaryName,
+        price
+    };
+
+    if (englishName && String(englishName).trim()) {
+        out.trade_name_en = String(englishName).trim();
+    }
+    if (manufacturer && String(manufacturer).trim() && String(manufacturer).trim() !== 'NOT AVAILABLE') {
+        out.manufacturer = String(manufacturer).trim();
     }
     if (productCode !== undefined && productCode !== null && String(productCode).trim() !== '') {
         out.product_code = productCode;
@@ -292,6 +358,57 @@ function validateProductInput(data, isUpdate = false) {
 function isValidDate(dateString) {
     const date = new Date(dateString);
     return !isNaN(date.getTime());
+}
+
+function enrichImportedProduct(normalizedRow = {}) {
+    const row = { ...normalizedRow };
+
+    const tradeNameEn = String(row.trade_name_en || '').trim();
+    const genericNameEn = String(row.generic_name_en || '').trim();
+    const manufacturer = String(row.manufacturer || '').trim();
+    const dosageForm = String(row.dosage_form || '').trim();
+    const strength = String(row.strength || '').trim();
+    const uses = String(row.uses || '').trim();
+    const notes = String(row.notes || '').trim();
+
+    if (!row.dosage_form && row.category) {
+        row.dosage_form = String(row.category).trim();
+    }
+
+    if (!row.name && tradeNameEn) {
+        row.name = tradeNameEn;
+    }
+    if (!row.active_ingredient && genericNameEn) {
+        row.active_ingredient = genericNameEn;
+    }
+    if (!row.category && dosageForm) {
+        row.category = dosageForm;
+    }
+
+    const descriptionParts = [];
+    if (row.description) descriptionParts.push(String(row.description).trim());
+    if (uses) descriptionParts.push(`الاستخدامات: ${uses}`);
+    if (manufacturer) descriptionParts.push(`الشركة: ${manufacturer}`);
+    if (strength) descriptionParts.push(`التركيز: ${strength}`);
+    if (genericNameEn) descriptionParts.push(`Generic: ${genericNameEn}`);
+    if (notes) descriptionParts.push(notes);
+
+    const mergedDescription = descriptionParts.filter(Boolean).join(' | ').trim();
+    row.description = mergedDescription || null;
+
+    if (tradeNameEn && row.name && tradeNameEn.toLowerCase() !== String(row.name).trim().toLowerCase()) {
+        row.offer_note = row.offer_note
+            ? `${row.offer_note} | EN: ${tradeNameEn}`
+            : `EN: ${tradeNameEn}`;
+    }
+
+    if (row.image && typeof row.image === 'string') {
+        row.image = row.image.trim() || null;
+    } else {
+        row.image = null;
+    }
+
+    return row;
 }
 
 function isExpired(dateString) {
@@ -468,13 +585,105 @@ function deleteProductImage(imagePath) {
     }
 }
 
+function slugifyProductName(name = '') {
+    return String(name || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .split(' ')[0] || '';
+}
+
+function buildLocalFallbackImagePath(productName = '') {
+    const slug = slugifyProductName(productName);
+    if (!slug) return null;
+    const filename = `${slug}.svg`;
+    const filepath = path.join(uploadsDir, filename);
+    if (!fs.existsSync(filepath)) return '/uploads/products/default.svg';
+    return `/uploads/products/${filename}`;
+}
+
+function isHttpImageUrl(value) {
+    if (!value || typeof value !== 'string') return false;
+    const text = value.trim();
+    return /^https?:\/\//i.test(text);
+}
+
+function extensionFromContentType(contentType = '') {
+    const type = String(contentType).toLowerCase();
+    if (type.includes('image/jpeg')) return 'jpg';
+    if (type.includes('image/png')) return 'png';
+    if (type.includes('image/webp')) return 'webp';
+    if (type.includes('image/gif')) return 'gif';
+    if (type.includes('image/svg+xml')) return 'svg';
+    return null;
+}
+
+async function cacheExternalImage(imageUrl, productId) {
+    try {
+        if (!isHttpImageUrl(imageUrl)) return null;
+
+        const response = await fetch(imageUrl, {
+            redirect: 'follow',
+            headers: {
+                'User-Agent': 'PharmaConnect/1.0'
+            }
+        });
+        if (!response.ok) return null;
+
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.toLowerCase().includes('image/')) return null;
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (!buffer.length || buffer.length > 3 * 1024 * 1024) {
+            return null;
+        }
+
+        const extension = extensionFromContentType(contentType) || 'jpg';
+        const filename = `product_${productId}_${Date.now()}.${extension}`;
+        const filepath = path.join(uploadsDir, filename);
+        fs.writeFileSync(filepath, buffer);
+        return `/uploads/products/${filename}`;
+    } catch (error) {
+        console.error('Error caching external image:', error.message);
+        return null;
+    }
+}
+
+async function findFirstGoogleImageUrl(queryText) {
+    const apiKey = String(process.env.GOOGLE_CSE_API_KEY || '').trim();
+    const cx = String(process.env.GOOGLE_CSE_CX || '').trim();
+    const query = String(queryText || '').trim();
+    if (!apiKey || !cx || !query) return null;
+
+    try {
+        const url = new URL('https://www.googleapis.com/customsearch/v1');
+        url.searchParams.set('key', apiKey);
+        url.searchParams.set('cx', cx);
+        url.searchParams.set('q', `${query} medicine product`);
+        url.searchParams.set('searchType', 'image');
+        url.searchParams.set('num', '1');
+        url.searchParams.set('safe', 'active');
+
+        const response = await fetch(url.toString(), { redirect: 'follow' });
+        if (!response.ok) return null;
+        const data = await response.json();
+        const first = Array.isArray(data?.items) ? data.items[0] : null;
+        const link = String(first?.link || '').trim();
+        return isHttpImageUrl(link) ? link : null;
+    } catch (error) {
+        console.error('Google image lookup error:', error.message);
+        return null;
+    }
+}
+
 // Get all products (for pharmacy - shows all warehouse products)
-router.get('/', verifyToken, (req, res) => {
-    const { 
-        search, 
-        category, 
-        warehouse_id, 
-        page = 1, 
+router.get('/', verifyToken, async (req, res) => {
+    const {
+        search,
+        category,
+        warehouse_id,
+        page = 1,
         limit = CONFIG.DEFAULT_PAGE_SIZE,
         sort_by = 'created_at',
         sort_order = 'DESC',
@@ -483,134 +692,154 @@ router.get('/', verifyToken, (req, res) => {
         in_stock,
         has_offers
     } = req.query;
-    
-    // Sanitize and validate pagination
-    const pageNum = Math.max(1, parseInt(page) || 1);
-    const pageSize = Math.min(CONFIG.MAX_PAGE_SIZE, Math.max(1, parseInt(limit) || CONFIG.DEFAULT_PAGE_SIZE));
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const pageSize = Math.min(CONFIG.MAX_PAGE_SIZE, Math.max(1, parseInt(limit, 10) || CONFIG.DEFAULT_PAGE_SIZE));
     const offset = (pageNum - 1) * pageSize;
-    
-    // Sanitize sort parameters
+
     const allowedSortFields = ['name', 'price', 'quantity', 'created_at', 'category', 'active_ingredient', 'discount_percent'];
     const sortField = allowedSortFields.includes(sort_by) ? sort_by : 'created_at';
-    const sortDirection = sort_order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-    
-    let query = `
-        SELECT p.*, u.username as warehouse_name, u.address as warehouse_address, u.rating as warehouse_rating
-        FROM products p 
-        JOIN users u ON p.warehouse_id = u.id 
-        WHERE p.quantity > 0
-    `;
-    const params = [];
+    const ascending = String(sort_order || 'DESC').toUpperCase() === 'ASC';
+    const today = new Date().toISOString().slice(0, 10);
 
-    // Filter by warehouse
-    if (warehouse_id) {
-        const warehouseId = parseInt(warehouse_id);
-        if (!isNaN(warehouseId)) {
-            query += ' AND p.warehouse_id = ?';
-            params.push(warehouseId);
+    function applyFilters(queryBuilder) {
+        let q = queryBuilder.gt('quantity', 0);
+
+        if (warehouse_id) {
+            const warehouseId = parseInt(warehouse_id, 10);
+            if (!Number.isNaN(warehouseId)) {
+                q = q.eq('warehouse_id', warehouseId);
+            }
         }
-    }
 
-    // Search filter
-    if (search && typeof search === 'string') {
-        const searchTerm = search.trim().substring(0, 100); // Limit search term length
-        query += ' AND (p.name LIKE ? OR p.description LIKE ? OR p.active_ingredient LIKE ? OR u.username LIKE ?)';
-        params.push(`%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`);
-    }
-
-    // Category filter
-    if (category && typeof category === 'string') {
-        query += ' AND p.category = ?';
-        params.push(category.trim());
-    }
-
-    // Price range filter
-    if (min_price) {
-        const minPrice = parseFloat(min_price);
-        if (!isNaN(minPrice) && minPrice >= 0) {
-            query += ' AND p.price >= ?';
-            params.push(minPrice);
+        if (search && typeof search === 'string') {
+            const searchTerm = search.trim().substring(0, 100);
+            if (searchTerm) {
+                q = q.or(`name.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%,active_ingredient.ilike.%${searchTerm}%`);
+            }
         }
-    }
 
-    if (max_price) {
-        const maxPrice = parseFloat(max_price);
-        if (!isNaN(maxPrice) && maxPrice >= 0) {
-            query += ' AND p.price <= ?';
-            params.push(maxPrice);
+        if (category && typeof category === 'string' && category.trim()) {
+            q = q.eq('category', category.trim());
         }
+
+        if (min_price !== undefined && min_price !== null && String(min_price).trim() !== '') {
+            const minPrice = parseFloat(min_price);
+            if (!Number.isNaN(minPrice) && minPrice >= 0) {
+                q = q.gte('price', minPrice);
+            }
+        }
+
+        if (max_price !== undefined && max_price !== null && String(max_price).trim() !== '') {
+            const maxPrice = parseFloat(max_price);
+            if (!Number.isNaN(maxPrice) && maxPrice >= 0) {
+                q = q.lte('price', maxPrice);
+            }
+        }
+
+        if (has_offers === 'true') {
+            q = q.or('discount_percent.gt.0,and(bonus_buy_quantity.gt.0,bonus_free_quantity.gt.0)');
+        }
+
+        if (in_stock === 'true') {
+            q = q.or(`expiry_date.is.null,expiry_date.gt.${today}`);
+        }
+
+        return q;
     }
 
-    // Offers only filter
-    if (has_offers === 'true') {
-        query += ' AND (IFNULL(p.discount_percent, 0) > 0 OR (IFNULL(p.bonus_buy_quantity, 0) > 0 AND IFNULL(p.bonus_free_quantity, 0) > 0))';
-    }
-
-    // Exclude expired products (optional filter)
-    if (in_stock === 'true') {
-        query += ' AND (p.expiry_date IS NULL OR p.expiry_date > date("now"))';
-    }
-
-    // Get total count for pagination
-    // Use a multiline-safe replacement to keep all applied filters in the count query.
-    const countQuery = query.replace(/SELECT[\s\S]*?FROM products p/, 'SELECT COUNT(*) as total FROM products p');
-    
-    // Add sorting and pagination
-    query += ` ORDER BY p.${sortField} ${sortDirection} LIMIT ? OFFSET ?`;
-    params.push(pageSize, offset);
-
-    // Execute count query
-    db.get(countQuery, params.slice(0, -2), (err, countResult) => {
-        if (err) {
-            console.error('Error counting products:', err);
+    try {
+        const countQuery = applyFilters(
+            db.supabase.from('products').select('id', { count: 'exact', head: true })
+        );
+        const { count, error: countError } = await countQuery;
+        if (countError) {
+            console.error('Error counting products:', countError);
             return res.status(500).json({ error: 'خطأ في الخادم', code: 'COUNT_ERROR' });
         }
 
-        const totalItems = countResult?.total || 0;
-        const totalPages = Math.ceil(totalItems / pageSize);
+        const dataQuery = applyFilters(
+            db.supabase
+                .from('products')
+                .select('*')
+                .order(sortField, { ascending })
+                .range(offset, offset + pageSize - 1)
+        );
+        const { data: products, error: productsError } = await dataQuery;
+        if (productsError) {
+            console.error('Error fetching products:', productsError);
+            return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
+        }
 
-        // Execute main query
-        db.all(query, params, (err, products) => {
-            if (err) {
-                console.error('Error fetching products:', err);
-                return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
-            }
+        const safeProducts = products || [];
+        const warehouseIds = [...new Set(safeProducts.map((p) => p.warehouse_id).filter(Boolean))];
+        const { data: warehouses, error: warehousesError } = warehouseIds.length
+            ? await db.supabase.from('users').select('id, username, address, rating').in('id', warehouseIds)
+            : { data: [], error: null };
 
-            // Filter out expired products from results (as an extra safety measure)
-            const validProducts = products
-                .filter(p => !p.expiry_date || !isExpired(p.expiry_date))
-                .map(calculateOfferMetrics);
+        if (warehousesError) {
+            console.error('Error fetching warehouses for products:', warehousesError);
+            return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
+        }
 
-            res.json({ 
-                products: validProducts,
-                pagination: {
-                    current_page: pageNum,
-                    total_pages: totalPages,
-                    total_items: totalItems,
-                    items_per_page: pageSize,
-                    has_next: pageNum < totalPages,
-                    has_prev: pageNum > 1
-                }
+        const warehousesMap = new Map((warehouses || []).map((w) => [w.id, w]));
+        const validProducts = safeProducts
+            .filter((p) => !p.expiry_date || !isExpired(p.expiry_date))
+            .map((product) => {
+                const warehouse = warehousesMap.get(product.warehouse_id);
+                return calculateOfferMetrics({
+                    ...product,
+                    warehouse_name: warehouse?.username || null,
+                    warehouse_address: warehouse?.address || null,
+                    warehouse_rating: warehouse?.rating ?? null
+                });
             });
+
+        const totalItems = count || 0;
+        const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize);
+
+        return res.json({
+            products: validProducts,
+            pagination: {
+                current_page: pageNum,
+                total_pages: totalPages,
+                total_items: totalItems,
+                items_per_page: pageSize,
+                has_next: pageNum < totalPages,
+                has_prev: pageNum > 1
+            }
         });
-    });
+    } catch (err) {
+        console.error('Unhandled products fetch error:', err);
+        return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
+    }
 });
 
 // Get categories
-router.get('/categories', verifyToken, (req, res) => {
-    db.all(`
-        SELECT DISTINCT category, COUNT(*) as count 
-        FROM products 
-        WHERE category IS NOT NULL AND quantity > 0
-        GROUP BY category 
-        ORDER BY count DESC
-    `, [], (err, categories) => {
-        if (err) {
-            console.error('Error fetching categories:', err);
+router.get('/categories', verifyToken, async (req, res) => {
+    try {
+        const { data, error } = await db.supabase
+            .from('products')
+            .select('category')
+            .gt('quantity', 0)
+            .not('category', 'is', null);
+
+        if (error) {
+            console.error('Error fetching categories from Supabase:', error);
             return res.status(500).json({ error: 'خطأ في الخادم', code: 'CATEGORIES_ERROR' });
         }
+
+        const categories = [...new Set(
+            (data || [])
+                .map((item) => (typeof item.category === 'string' ? item.category.trim() : ''))
+                .filter(Boolean)
+        )].sort((a, b) => a.localeCompare(b, 'ar'));
+
         res.json({ categories });
-    });
+    } catch (err) {
+        console.error('Unhandled categories error:', err);
+        res.status(500).json({ error: 'خطأ في الخادم', code: 'CATEGORIES_ERROR' });
+    }
 });
 
 // Get warehouse's products (for warehouse dashboard)
@@ -709,35 +938,57 @@ router.get('/expired', verifyToken, (req, res) => {
 });
 
 // Get single product
-router.get('/:id', verifyToken, (req, res) => {
-    const productId = parseInt(req.params.id);
-    
-    if (isNaN(productId)) {
+router.get('/:id', verifyToken, async (req, res) => {
+    const productId = parseInt(req.params.id, 10);
+
+    if (Number.isNaN(productId)) {
         return res.status(400).json({ error: 'معرف المنتج غير صالح', code: 'INVALID_ID' });
     }
 
-    db.get(`
-        SELECT p.*, u.username as warehouse_name, u.address as warehouse_address, u.phone as warehouse_phone, u.rating as warehouse_rating
-        FROM products p 
-        JOIN users u ON p.warehouse_id = u.id 
-        WHERE p.id = ?
-    `, [productId], (err, product) => {
-        if (err) {
-            console.error('Error fetching product:', err);
+    try {
+        const { data: product, error: productError } = await db.supabase
+            .from('products')
+            .select('*')
+            .eq('id', productId)
+            .maybeSingle();
+
+        if (productError) {
+            console.error('Error fetching product:', productError);
             return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
         }
         if (!product) {
             return res.status(404).json({ error: 'المنتج غير موجود', code: 'NOT_FOUND' });
         }
-        
-        // Add additional info
-        product.is_expired = product.expiry_date ? isExpired(product.expiry_date) : false;
-        product.stock_status = product.quantity === 0 ? 'out_of_stock' : 
-                              product.quantity < CONFIG.LOW_STOCK_THRESHOLD ? 'low_stock' : 'in_stock';
-        Object.assign(product, calculateOfferMetrics(product));
-        
-        res.json({ product });
-    });
+
+        const { data: warehouse, error: warehouseError } = await db.supabase
+            .from('users')
+            .select('username, address, phone, rating')
+            .eq('id', product.warehouse_id)
+            .maybeSingle();
+
+        if (warehouseError) {
+            console.error('Error fetching product warehouse:', warehouseError);
+            return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
+        }
+
+        const hydratedProduct = {
+            ...product,
+            warehouse_name: warehouse?.username || null,
+            warehouse_address: warehouse?.address || null,
+            warehouse_phone: warehouse?.phone || null,
+            warehouse_rating: warehouse?.rating ?? null
+        };
+
+        hydratedProduct.is_expired = hydratedProduct.expiry_date ? isExpired(hydratedProduct.expiry_date) : false;
+        hydratedProduct.stock_status = hydratedProduct.quantity === 0 ? 'out_of_stock'
+            : hydratedProduct.quantity < CONFIG.LOW_STOCK_THRESHOLD ? 'low_stock' : 'in_stock';
+        Object.assign(hydratedProduct, calculateOfferMetrics(hydratedProduct));
+
+        return res.json({ product: hydratedProduct });
+    } catch (err) {
+        console.error('Unhandled fetch product error:', err);
+        return res.status(500).json({ error: 'خطأ في الخادم', code: 'FETCH_ERROR' });
+    }
 });
 
 // Add product (warehouse only)
@@ -1108,7 +1359,7 @@ router.delete('/:id', verifyToken, (req, res) => {
 });
 
 // Import products from Excel/CSV file (warehouse only)
-router.post('/import', verifyToken, upload.single('file'), (req, res) => {
+router.post('/import', verifyToken, upload.single('file'), async (req, res) => {
     if (req.user.role !== 'warehouse') {
         return res.status(403).json({ error: 'غير مصرح لك', code: 'FORBIDDEN' });
     }
@@ -1166,35 +1417,37 @@ router.post('/import', verifyToken, upload.single('file'), (req, res) => {
 
             // Normalize the row data
             const normalizedRow = normalizeRowData(rowObj);
-            const fallbackRow = buildFallbackRowFromLegacySheet(row);
+            const fallbackRow = buildFallbackRowFromLegacySheet(row) || buildFallbackRowFromDrugListSheet(row);
             if ((!normalizedRow.name || !Number.isFinite(normalizedRow.price)) && fallbackRow) {
                 Object.assign(normalizedRow, fallbackRow);
             }
+
+            const enrichedRow = enrichImportedProduct(normalizedRow);
             
             // Validate required fields
-            if (!normalizedRow.name || !Number.isFinite(normalizedRow.price)) {
+            if (!enrichedRow.name || !Number.isFinite(enrichedRow.price)) {
                 errors.push({ row: i + 1, errors: ['الاسم والسعر مطلوبان'] });
                 continue;
             }
 
             // Add default values for optional fields
-            normalizedRow.description = normalizedRow.description || null;
-            normalizedRow.category = normalizedRow.category || null;
-            normalizedRow.active_ingredient = normalizedRow.active_ingredient || null;
-            normalizedRow.quantity = normalizedRow.quantity ?? 0;
-            normalizedRow.discount_percent = normalizedRow.discount_percent || 0;
-            normalizedRow.bonus_buy_quantity = normalizedRow.bonus_buy_quantity || 0;
-            normalizedRow.bonus_free_quantity = normalizedRow.bonus_free_quantity || 0;
-            normalizedRow.offer_note = normalizedRow.offer_note || null;
-            normalizedRow.expiry_date = normalizedRow.expiry_date || null;
-            if (normalizedRow.product_code) {
-                const codeText = `الكود: ${String(normalizedRow.product_code).trim()}`;
-                normalizedRow.offer_note = normalizedRow.offer_note
-                    ? `${normalizedRow.offer_note} | ${codeText}`
+            enrichedRow.description = enrichedRow.description || null;
+            enrichedRow.category = enrichedRow.category || null;
+            enrichedRow.active_ingredient = enrichedRow.active_ingredient || null;
+            enrichedRow.quantity = enrichedRow.quantity ?? 0;
+            enrichedRow.discount_percent = enrichedRow.discount_percent || 0;
+            enrichedRow.bonus_buy_quantity = enrichedRow.bonus_buy_quantity || 0;
+            enrichedRow.bonus_free_quantity = enrichedRow.bonus_free_quantity || 0;
+            enrichedRow.offer_note = enrichedRow.offer_note || null;
+            enrichedRow.expiry_date = enrichedRow.expiry_date || null;
+            if (enrichedRow.product_code) {
+                const codeText = `الكود: ${String(enrichedRow.product_code).trim()}`;
+                enrichedRow.offer_note = enrichedRow.offer_note
+                    ? `${enrichedRow.offer_note} | ${codeText}`
                     : codeText;
             }
 
-            processedProducts.push(normalizedRow);
+            processedProducts.push(enrichedRow);
         }
 
         if (processedProducts.length === 0) {
@@ -1212,89 +1465,107 @@ router.post('/import', verifyToken, upload.single('file'), (req, res) => {
         const insertedProducts = [];
         const insertErrors = [];
 
-        db.serialize(() => {
-            productsToInsert.forEach((product, index) => {
-                const validationErrors = validateProductInput(product);
-                if (validationErrors.length > 0) {
-                    insertErrors.push({ row: index + 2, product: product.name, errors: validationErrors });
-                    return;
+        for (let index = 0; index < productsToInsert.length; index += 1) {
+            const product = productsToInsert[index];
+            const validationErrors = validateProductInput(product);
+            if (validationErrors.length > 0) {
+                insertErrors.push({ row: index + 2, product: product.name, errors: validationErrors });
+                continue;
+            }
+
+            if (product.expiry_date && isExpired(product.expiry_date)) {
+                insertErrors.push({ row: index + 2, product: product.name, errors: ['تاريخ انتهاء منتهي'] });
+                continue;
+            }
+
+            let resolvedImage = product.image || null;
+            if (resolvedImage && isHttpImageUrl(resolvedImage)) {
+                const cachedImagePath = await cacheExternalImage(resolvedImage, `tmp_${Date.now()}_${index}`);
+                if (cachedImagePath) {
+                    resolvedImage = cachedImagePath;
+                } else {
+                    resolvedImage = null;
                 }
-
-                if (product.expiry_date && isExpired(product.expiry_date)) {
-                    insertErrors.push({ row: index + 2, product: product.name, errors: ['تاريخ انتهاء منتهي'] });
-                    return;
-                }
-
-                const stmt = db.prepare(`
-                    INSERT INTO products (
-                        warehouse_id, name, description, category, active_ingredient, price, quantity,
-                        discount_percent, bonus_buy_quantity, bonus_free_quantity, offer_note, expiry_date, image
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `);
-
-                stmt.run([
-                    req.user.id,
-                    product.name,
-                    product.description,
-                    product.category,
-                    product.active_ingredient,
-                    product.price,
-                    product.quantity,
-                    product.discount_percent,
-                    product.bonus_buy_quantity,
-                    product.bonus_free_quantity,
-                    product.offer_note,
-                    product.expiry_date,
-                    null
-                ], function(err) {
-                    if (err) {
-                        insertErrors.push({ row: index + 2, product: product.name, errors: [err.message] });
-                    } else {
-                        insertedProducts.push({
-                            id: this.lastID,
-                            name: product.name,
-                            price: product.price,
-                            quantity: product.quantity
-                        });
-
-                        // Check low stock
-                        if (product.quantity < CONFIG.LOW_STOCK_THRESHOLD) {
-                            createNotification({
-                            userId: req.user.id,
-                            type: 'low_stock',
-                            message: `تنبيه: المخزون منخفض للمنتج ${product.name}`,
-                            relatedId: this.lastID
-                        }).catch(() => {});
-                        }
+            }
+            if (!resolvedImage) {
+                const googleImageUrl = await findFirstGoogleImageUrl(product.name);
+                if (googleImageUrl) {
+                    const cachedGoogleImagePath = await cacheExternalImage(googleImageUrl, `tmp_google_${Date.now()}_${index}`);
+                    if (cachedGoogleImagePath) {
+                        resolvedImage = cachedGoogleImagePath;
                     }
-                });
+                }
+            }
+            if (!resolvedImage) {
+                resolvedImage = buildLocalFallbackImagePath(product.name);
+            }
 
-                stmt.finalize();
+            const payload = {
+                warehouse_id: req.user.id,
+                name: product.name,
+                description: product.description,
+                category: product.category,
+                active_ingredient: product.active_ingredient,
+                price: Number(product.price),
+                quantity: Number(product.quantity),
+                discount_percent: Number(product.discount_percent),
+                bonus_buy_quantity: Number(product.bonus_buy_quantity),
+                bonus_free_quantity: Number(product.bonus_free_quantity),
+                offer_note: product.offer_note,
+                expiry_date: product.expiry_date,
+                image: resolvedImage || null
+            };
+
+            const { data: insertedRow, error: insertError } = await db.supabase
+                .from('products')
+                .insert([payload])
+                .select('id')
+                .single();
+
+            if (insertError) {
+                insertErrors.push({ row: index + 2, product: product.name, errors: [insertError.message] });
+                continue;
+            }
+
+            insertedProducts.push({
+                id: insertedRow.id,
+                name: product.name,
+                price: product.price,
+                quantity: product.quantity
             });
 
-            db.get('SELECT CHANGES() as changes', (err) => {
-                console.log(`Excel import completed: ${insertedProducts.length} products added by warehouse ${req.user.id}`);
-                
-                const response = {
-                    message: `تم استيراد ${insertedProducts.length} منتج بنجاح من الملف`,
-                    inserted: insertedProducts,
-                    errors: insertErrors,
-                    summary: {
-                        total_in_file: processedProducts.length,
-                        total_requested: productsToInsert.length,
-                        skipped_limit: skippedProducts,
-                        successful: insertedProducts.length,
-                        failed: insertErrors.length
-                    }
-                };
+            insertedProducts[insertedProducts.length - 1].image = resolvedImage || null;
 
-                if (insertErrors.length > 0 && insertedProducts.length === 0) {
-                    return res.status(400).json({ ...response, error: 'لم يتم استيراد أي منتج', code: 'IMPORT_FAILED' });
-                }
+            if (product.quantity < CONFIG.LOW_STOCK_THRESHOLD) {
+                createNotification({
+                    userId: req.user.id,
+                    type: 'low_stock',
+                    message: `تنبيه: المخزون منخفض للمنتج ${product.name}`,
+                    relatedId: insertedRow.id
+                }).catch(() => {});
+            }
+        }
 
-                res.json(response);
-            });
-        });
+        console.log(`Excel import completed: ${insertedProducts.length} products added by warehouse ${req.user.id}`);
+
+        const response = {
+            message: `تم استيراد ${insertedProducts.length} منتج بنجاح من الملف`,
+            inserted: insertedProducts,
+            errors: insertErrors,
+            summary: {
+                total_in_file: processedProducts.length,
+                total_requested: productsToInsert.length,
+                skipped_limit: skippedProducts,
+                successful: insertedProducts.length,
+                failed: insertErrors.length
+            }
+        };
+
+        if (insertErrors.length > 0 && insertedProducts.length === 0) {
+            return res.status(400).json({ ...response, error: 'لم يتم استيراد أي منتج', code: 'IMPORT_FAILED' });
+        }
+
+        return res.json(response);
     } catch (error) {
         console.error('Error parsing Excel file:', error);
         return res.status(400).json({ error: 'فشل في قراءة الملف: ' + error.message, code: 'PARSE_ERROR' });

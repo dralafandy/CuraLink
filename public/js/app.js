@@ -28,7 +28,8 @@ function getMobileNavItemsForRole(role) {
             { label: 'المنتجات', icon: 'fa-boxes', page: 'products' },
             { label: 'الطلبات', icon: 'fa-shopping-cart', page: 'orders' },
             { label: 'الإشعارات', icon: 'fa-bell', page: 'notifications' },
-            { label: 'القائمة', icon: 'fa-bars', action: 'menu' }
+            { label: 'القائمة', icon: 'fa-bars', action: 'menu' },
+            { label: 'خروج', icon: 'fa-sign-out-alt', action: 'logout' }
         ];
     }
 
@@ -38,7 +39,8 @@ function getMobileNavItemsForRole(role) {
             { label: 'تصفح', icon: 'fa-search', page: 'browse-products' },
             { label: 'السلة', icon: 'fa-shopping-basket', page: 'cart' },
             { label: 'الإشعارات', icon: 'fa-bell', page: 'notifications' },
-            { label: 'القائمة', icon: 'fa-bars', action: 'menu' }
+            { label: 'القائمة', icon: 'fa-bars', action: 'menu' },
+            { label: 'خروج', icon: 'fa-sign-out-alt', action: 'logout' }
         ];
     }
 
@@ -47,7 +49,8 @@ function getMobileNavItemsForRole(role) {
         { label: 'الطلبات', icon: 'fa-shopping-cart', page: 'orders' },
         { label: 'الفواتير', icon: 'fa-file-invoice-dollar', page: 'invoices' },
         { label: 'الإشعارات', icon: 'fa-bell', page: 'notifications' },
-        { label: 'القائمة', icon: 'fa-bars', action: 'menu' }
+        { label: 'القائمة', icon: 'fa-bars', action: 'menu' },
+        { label: 'خروج', icon: 'fa-sign-out-alt', action: 'logout' }
     ];
 }
 
@@ -71,8 +74,9 @@ function ensureMobileBottomNav() {
     }
 
     const navItems = getMobileNavItemsForRole(currentUser.role);
+    nav.style.setProperty('--mobile-nav-columns', String(navItems.length));
     nav.innerHTML = navItems.map((item) => `
-        <button type="button" class="mobile-nav-item" ${item.page ? `data-page="${item.page}"` : ''} aria-label="${item.label}">
+        <button type="button" class="mobile-nav-item${item.action === 'logout' ? ' mobile-nav-item--logout' : ''}" ${item.page ? `data-page="${item.page}"` : ''} aria-label="${item.label}">
             <i class="fas ${item.icon}"></i>
             <span>${item.label}</span>
         </button>
@@ -88,6 +92,10 @@ function ensureMobileBottomNav() {
             }
             if (item.action === 'menu') {
                 toggleSidebar();
+                return;
+            }
+            if (item.action === 'logout') {
+                logout();
             }
         });
     });
@@ -1858,11 +1866,11 @@ async function deleteOrder(orderId, status = 'pending') {
         showToast('تم حذف الطلب بنجاح', 'success');
 
         if (currentUser?.role === 'warehouse') {
-            await Promise.all([loadWarehouseOrders(), loadWarehouseDashboard()]);
+            await Promise.all([loadWarehouseOrders(), loadDashboard()]);
         } else if (currentUser?.role === 'pharmacy') {
-            await Promise.all([loadPharmacyOrders(), loadPharmacyDashboard()]);
+            await Promise.all([loadPharmacyOrders(), loadDashboard()]);
         } else if (currentUser?.role === 'admin') {
-            await loadAdminDashboard();
+            await loadDashboard();
         }
     } catch (error) {
         console.error(error);
@@ -2977,4 +2985,3 @@ document.addEventListener('DOMContentLoaded', () => {
     updateBrowseFiltersState();
     setFiltersPanelExpanded(!window.matchMedia('(max-width: 768px)').matches);
 });
-
