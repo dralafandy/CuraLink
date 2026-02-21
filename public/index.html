@@ -327,6 +327,14 @@
                 <div class="page-header">
                     <h3>إدارة المنتجات</h3>
                     <div class="header-actions">
+                        <div class="view-toggle">
+                            <button class="view-btn warehouse-view-btn active" data-view="grid" onclick="toggleWarehouseProductsView('grid')" title="عرض شبكي">
+                                <i class="fas fa-th-large"></i>
+                            </button>
+                            <button class="view-btn warehouse-view-btn" data-view="list" onclick="toggleWarehouseProductsView('list')" title="عرض قائمة">
+                                <i class="fas fa-list"></i>
+                            </button>
+                        </div>
                         <button id="import-products-btn" class="btn-secondary" onclick="openImportFileWindow()">
                             <i class="fas fa-file-import"></i>
                             استيراد من Excel
@@ -690,7 +698,7 @@
                             إشعار تجريبي
                         </button>
                         <button class="btn-secondary" onclick="deleteReadNotifications()">
-                            <i class="fas fa-trash"></i>
+                            <i class="fas fa-trash-can"></i>
                             حذف المقروء
                         </button>
                         <button class="btn-secondary" onclick="markAllRead()">
@@ -872,7 +880,7 @@
                             </div>
                             <div class="image-actions" style="display: none;" id="image-actions">
                                 <button type="button" class="btn-secondary btn-sm" onclick="removeProductImage()">
-                                    <i class="fas fa-trash"></i> إزالة الصورة
+                                    <i class="fas fa-trash-can"></i> إزالة الصورة
                                 </button>
                             </div>
                         </div>

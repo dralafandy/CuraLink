@@ -726,6 +726,8 @@ async function loadPharmacyStats() {
 
 async function loadWarehouseProducts() {
     try {
+        initWarehouseProductsViewPreference();
+
         const pageSize = 100;
         let page = 1;
         let allProducts = [];
@@ -798,7 +800,7 @@ function renderWarehouseProducts(products) {
                     <i class="fas fa-edit"></i>
                 </button>
                 <button class="btn-danger btn-sm" onclick="deleteProduct(${product.id})">
-                    <i class="fas fa-trash"></i>
+                    <i class="fas fa-trash-can"></i>
                 </button>
             </div>
         </div>
@@ -1511,7 +1513,7 @@ function toggleView(view) {
     const grid = document.getElementById('pharmacy-products-grid');
     if (!grid) return;
 
-    document.querySelectorAll('.view-btn').forEach(btn => {
+    document.querySelectorAll('#browse-products-page .view-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.view === view);
     });
 
@@ -1519,6 +1521,23 @@ function toggleView(view) {
     
     // Save preference
     localStorage.setItem('productViewPreference', view);
+}
+
+function toggleWarehouseProductsView(view) {
+    const grid = document.getElementById('warehouse-products-grid');
+    if (!grid) return;
+
+    document.querySelectorAll('#products-page .warehouse-view-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === view);
+    });
+
+    grid.classList.toggle('list-view', view === 'list');
+    localStorage.setItem('warehouseProductViewPreference', view);
+}
+
+function initWarehouseProductsViewPreference() {
+    const savedView = localStorage.getItem('warehouseProductViewPreference') || 'grid';
+    toggleWarehouseProductsView(savedView);
 }
 
 // Initialize view preference on page load
@@ -1683,7 +1702,7 @@ function renderCart() {
                     </div>
                     <span class="cart-item-total">${(item.price * item.quantity).toFixed(2)} ج.م</span>
                     <button class="btn-danger btn-sm" onclick="removeFromCart(${item.product_id})">
-                        <i class="fas fa-trash"></i>
+                        <i class="fas fa-trash-can"></i>
                     </button>
                 </div>
             `).join('')}
@@ -1802,7 +1821,7 @@ function renderWarehouseOrdersTable(orders) {
                 </button>
                 ${order.status === 'pending' ? `
                     <button class="btn-danger btn-sm" title="متاح للطلبات المعلقة فقط" onclick="deleteOrder(${order.id}, '${order.status}')">
-                        <i class="fas fa-trash"></i>
+                        <i class="fas fa-trash-can"></i>
                     </button>
                 ` : `
                     <span style="font-size: 12px; color: var(--text-secondary);">الحذف للطلبات المعلقة فقط</span>
@@ -1855,7 +1874,7 @@ function renderPharmacyOrdersTable(orders) {
                 </button>
                 ${order.status === 'pending' ? `
                     <button class="btn-danger btn-sm" title="متاح للطلبات المعلقة فقط" onclick="deleteOrder(${order.id}, '${order.status}')">
-                        <i class="fas fa-trash"></i>
+                        <i class="fas fa-trash-can"></i>
                     </button>
                 ` : `
                     <span style="font-size: 12px; color: var(--text-secondary);">الحذف للطلبات المعلقة فقط</span>
@@ -2028,7 +2047,7 @@ function renderInvoicesTable(invoices) {
                     <i class="fas fa-edit"></i>
                 </button>
                 <button type="button" class="btn-danger btn-sm" onclick="deleteInvoice(${invoice.id})" title="حذف">
-                    <i class="fas fa-trash"></i>
+                    <i class="fas fa-trash-can"></i>
                 </button>
             </td>
         </tr>
