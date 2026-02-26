@@ -37,7 +37,7 @@ router.get('/', verifyToken, async (req, res) => {
         const { data: wishlistRows, error: wishlistError } = await db.supabase
             .from('wishlist')
             .select('product_id, created_at')
-            .eq('pharmacy_id', req.user.id)
+            .eq('user_id', req.user.id)
             .order('created_at', { ascending: false });
 
         if (wishlistError) {
@@ -101,7 +101,7 @@ router.get('/ids', verifyToken, async (req, res) => {
     const { data, error } = await db.supabase
         .from('wishlist')
         .select('product_id')
-        .eq('pharmacy_id', req.user.id);
+        .eq('user_id', req.user.id);
 
     if (error) {
         console.error('Error fetching wishlist ids:', error);
@@ -137,7 +137,7 @@ router.post('/:productId', verifyToken, async (req, res) => {
 
     const { error: insertErr } = await db.supabase
         .from('wishlist')
-        .upsert({ pharmacy_id: req.user.id, product_id: productId }, { onConflict: 'pharmacy_id,product_id', ignoreDuplicates: true });
+        .upsert({ user_id: req.user.id, product_id: productId }, { onConflict: 'user_id,product_id', ignoreDuplicates: true });
 
     if (insertErr) {
         console.error('Error adding wishlist item:', insertErr);
@@ -159,7 +159,7 @@ router.delete('/:productId', verifyToken, async (req, res) => {
     const { error } = await db.supabase
         .from('wishlist')
         .delete()
-        .eq('pharmacy_id', req.user.id)
+        .eq('user_id', req.user.id)
         .eq('product_id', productId);
 
     if (error) {

@@ -714,7 +714,13 @@ router.post('/', verifyToken, async (req, res) => {
         });
     } catch (err) {
         console.error('POST /orders error:', err.message);
-        return res.status(500).json({ error: 'خطأ في الخادم' });
+        console.error('Stack:', err.stack);
+        // Return more detailed error in development
+        const isDev = process.env.NODE_ENV !== 'production';
+        return res.status(500).json({ 
+            error: isDev ? err.message : 'خطأ في الخادم',
+            detail: isDev ? err.stack : undefined
+        });
     }
 });
 

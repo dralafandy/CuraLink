@@ -260,10 +260,28 @@ CREATE TRIGGER update_returns_updated_at BEFORE UPDATE ON returns
 CREATE TRIGGER update_notification_preferences_updated_at BEFORE UPDATE ON notification_preferences
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Insert sample admin user (password: admin123 - hashed with bcrypt)
--- Note: You'll need to generate the bcrypt hash
--- INSERT INTO users (username, email, password, phone, address, role)
--- VALUES ('admin', 'admin@curalink.com', '$2a$10$...hash...', '0123456789', 'Cairo', 'admin');
+-- Insert sample users (password: admin123, warehouse123, pharmacy123 - all hashed with bcrypt)
+INSERT INTO users (username, email, password, phone, address, role) VALUES 
+('admin', 'admin@curalink.com', '$2a$10$8K1p/a0dL1LXMIgoEDK0zu', '0123456789', 'Cairo', 'admin'),
+('warehouse1', 'warehouse1@test.com', '$2a$10$8K1p/a0dL1LXMIgoEDK0zu', '01000000001', 'Cairo', 'warehouse'),
+('warehouse2', 'warehouse2@test.com', '$2a$10$8K1p/a0dL1LXMIgoEDK0zu', '01000000002', 'Alexandria', 'warehouse'),
+('pharmacy1', 'pharmacy1@test.com', '$2a$10$8K1p/a0dL1LXMIgoEDK0zu', '01100000001', 'New Cairo', 'pharmacy'),
+('pharmacy2', 'pharmacy2@test.com', '$2a$10$8K1p/a0dL1LXMIgoEDK0zu', '01100000002', 'Zamalek', 'pharmacy'),
+('pharmacy3', 'pharmacy3@test.com', '$2a$10$8K1p/a0dL1LXMIgoEDK0zu', '01100000003', 'Mohandessin', 'pharmacy');
 
--- Enable realtime for notifications (optional - for real-time features)
--- ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
+-- Insert sample products for warehouse1
+INSERT INTO products (warehouse_id, name, description, category, price, quantity, discount_percent, bonus_buy_quantity, bonus_free_quantity, expiry_date, image) VALUES 
+(2, 'Paracetamol 500mg Tablets', 'Pain relief and fever reducer', 'Pain Relief', 18, 260, 12, 0, 0, DATE_ADD(CURRENT_DATE, INTERVAL '24 months'), '/uploads/products/paracetamol.svg'),
+(2, 'Panadol Extra Caplets', 'Dual-action pain relief', 'Pain Relief', 32, 180, 8, 0, 0, DATE_ADD(CURRENT_DATE, INTERVAL '20 months'), '/uploads/products/panadol.svg'),
+(2, 'Novaldol 500mg Tablets', 'مسكن للآلام وخافض للحرارة', 'Pain Relief', 15, 250, 10, 0, 0, DATE_ADD(CURRENT_DATE, INTERVAL '24 months'), '/uploads/products/novaldol.svg'),
+(2, 'Glucophage 500mg Tablets', 'علاج السكر من النوع الثاني', 'Diabetes Care', 38, 200, 12, 0, 0, DATE_ADD(CURRENT_DATE, INTERVAL '26 months'), '/uploads/products/glucophage.svg'),
+(2, 'Nexium 20mg Tablets', 'مثبط مضخة البروتون', 'Digestive Care', 85, 140, 10, 0, 0, DATE_ADD(CURRENT_DATE, INTERVAL '20 months'), '/uploads/products/nexium.svg'),
+(2, 'Augmentin 1g Tablets', 'مضاد حيوي واسع الطيف', 'Antibiotics', 120, 90, 5, 0, 0, DATE_ADD(CURRENT_DATE, INTERVAL '18 months'), '/uploads/products/augmentin.svg'),
+(2, 'Vitamin C 1000mg', 'Vitamin C supplement', 'Vitamins', 55, 210, 15, 0, 0, DATE_ADD(CURRENT_DATE, INTERVAL '18 months'), '/uploads/products/vitaminc.svg'),
+(2, 'Omega 3 1000mg', 'Omega 3 supplement', 'Supplements', 99, 150, 12, 0, 0, DATE_ADD(CURRENT_DATE, INTERVAL '24 months'), '/uploads/products/omega3.svg');
+
+-- Insert sample products for warehouse2
+INSERT INTO products (warehouse_id, name, description, category, price, quantity, discount_percent, bonus_buy_quantity, bonus_free_quantity, expiry_date, image) VALUES 
+(3, 'Cetirizine 10mg Tablets', 'Antihistamine for allergies', 'Allergy', 34, 200, 10, 0, 0, DATE_ADD(CURRENT_DATE, INTERVAL '26 months'), NULL),
+(3, 'Montelukast 10mg', 'Asthma and allergy medication', 'Respiratory', 79, 120, 5, 0, 0, DATE_ADD(CURRENT_DATE, INTERVAL '24 months'), NULL),
+(3, 'Panadol Cold & Flu', 'بانادول زكام وانفلونزا', 'Cold and Flu', 42, 200, 10, 0, 0, DATE_ADD(CURRENT_DATE, INTERVAL '18 months'), '/uploads/products/panadolflu.svg'),

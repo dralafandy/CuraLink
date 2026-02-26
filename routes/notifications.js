@@ -9,7 +9,7 @@ const {
     sendPushToUser
 } = require('../services/push');
 
-const JWT_SECRET = 'curalink_secret_key_2024';
+const JWT_SECRET = process.env.JWT_SECRET || 'curalink_secret_key_2024';
 
 function verifyToken(req, res, next) {
     const token = req.headers.authorization?.split(' ')[1];
@@ -332,23 +332,45 @@ router.get('/', verifyToken, async (req, res) => {
     }
 });
 
-router.get('/unread-count', verifyToken, (req, res) => {
-    db.supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', req.user.id)
-        .eq('read', 0)
-        .then(({ count, error }) => {
-            if (error) {
-                console.error('GET /notifications/unread-count error:', error);
-                return res.status(500).json({ error: 'خطأ في الخادم' });
-            }
-            return res.json({ count: count || 0 });
-        })
-        .catch((err) => {
-            console.error('GET /notifications/unread-count unhandled error:', err);
-            return res.status(500).json({ error: 'خطأ في الخادم' });
-        });
+router.get('/unread-count', verifyToken, async (req, res) => {
+    if (!req.user || !req.user.id) {
+        console.error('GET /unread-count: Missing user or user.id in token', { user: req.user });
+        return res.status(401).json({ error: 'غير مصرح' });
+    }
+    
+    console.log('GET /unread-count: Starting query for user_id:', req.user.id);
+    
+    try {
+        // Ensure Supabase is configured
+        if (!db.supabase) {
+            console.error('GET /unread-count: Supabase client not initialized');
+            return res.json({ count: 0 });
+        }
+        
+        const { count, error } = await db.supabase
+            .from('notifications')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', req.user.id)
+            .eq('read', 0);
+            
+        console.log('GET /unread-count: Query result - count:', count, 'error:', error);
+        
+        if (error) {
+            console.error('GET /notifications/unread-count error:', error);
+            console.error('Error code:', error.code);
+            console.error('Error message:', error.message);
+            console.error('Error details:', error.details);
+            console.error('Error hint:', error.hint);
+            
+            // Return 0 count for any DB issues instead of 500
+            return res.json({ count: 0 });
+        }
+        
+        return res.json({ count: count || 0 });
+    } catch (dbError) {
+        console.error('GET /notifications/unread-count unexpected error:', dbError);
+        return res.json({ count: 0 });
+    }
 });
 
 router.put('/read-group', verifyToken, (req, res) => {

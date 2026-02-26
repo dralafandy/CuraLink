@@ -44,6 +44,13 @@ function withOptionalCallback(promise, callback) {
     return undefined;
 }
 
+// Helper function to strip table alias from field name (e.g., "u.role" -> "role")
+function stripTableAlias(field) {
+    if (typeof field !== 'string') return field;
+    const parts = field.split('.');
+    return parts.length > 1 ? parts[parts.length - 1] : field;
+}
+
 function parseSql(sql, params) {
     const tableMatch = sql.match(/FROM\s+(\w+)/i) || sql.match(/INTO\s+(\w+)/i) || sql.match(/UPDATE\s+(\w+)/i);
     const table = tableMatch ? tableMatch[1] : null;
@@ -67,15 +74,73 @@ function parseSql(sql, params) {
 
         for (let i = 0; i < tokens.length; i += 2) {
             const part = tokens[i].trim();
-            const condMatch = part.match(/(\w+)\s*(=|LIKE)\s*\?/i);
-            if (!condMatch) continue;
-
-            conditions.push({
-                field: condMatch[1],
-                operator: condMatch[2].toUpperCase(),
-                value: params[paramIndex]
-            });
-            paramIndex += 1;
+            
+            // Match IS NOT NULL condition (supports table alias: u.field IS NOT NULL)
+            const isNotNullMatch = part.match(/([\w.]+)\s+IS\s+NOT\s+NULL/i);
+            if (isNotNullMatch) {
+                conditions.push({
+                    field: stripTableAlias(isNotNullMatch[1]),
+                    operator: 'IS NOT NULL',
+                    value: null
+                });
+                continue;
+            }
+            
+            // Match IS NULL condition
+            const isNullMatch = part.match(/([\w.]+)\s+IS\s+NULL/i);
+            if (isNullMatch) {
+                conditions.push({
+                    field: stripTableAlias(isNullMatch[1]),
+                    operator: 'IS NULL',
+                    value: null
+                });
+                continue;
+            }
+            
+            // Match BETWEEN condition: field BETWEEN ? AND ? (supports table alias)
+            const betweenMatch = part.match(/([\w.]+)\s+BETWEEN\s+\?\s+AND\s+\?/i);
+            if (betweenMatch) {
+                conditions.push({
+                    field: stripTableAlias(betweenMatch[1]),
+                    operator: 'BETWEEN',
+                    value: [params[paramIndex], params[paramIndex + 1]]
+                });
+                paramIndex += 2;
+                continue;
+            }
+            
+            // Match conditions with ? placeholders (supports table alias)
+            const condMatch = part.match(/([\w.]+)\s*(=|LIKE|>=|<=|>|<)\s*\?/i);
+            if (condMatch) {
+                conditions.push({
+                    field: stripTableAlias(condMatch[1]),
+                    operator: condMatch[2].toUpperCase(),
+                    value: params[paramIndex]
+                });
+                paramIndex += 1;
+                continue;
+            }
+            // Match conditions with string literals like role = 'warehouse' (supports table alias)
+            const literalMatch = part.match(/([\w.]+)\s*=\s*'([^']+)'/i);
+            if (literalMatch) {
+                conditions.push({
+                    field: stripTableAlias(literalMatch[1]),
+                    operator: '=',
+                    value: literalMatch[2]
+                });
+                continue;
+            }
+            
+            // Match conditions with numeric literals like is_active = 1 (supports table alias)
+            const numericMatch = part.match(/([\w.]+)\s*=\s*(\d+(?:\.\d+)?)/i);
+            if (numericMatch) {
+                conditions.push({
+                    field: stripTableAlias(numericMatch[1]),
+                    operator: '=',
+                    value: parseFloat(numericMatch[2])
+                });
+                continue;
+            }
         }
 
         if (tokens.length > 1) {
@@ -172,10 +237,35 @@ function applyFilters(query, parsed) {
     }
 
     for (const condition of conditions) {
-        if (condition.operator === 'LIKE') {
-            query = query.ilike(condition.field, condition.value);
-        } else {
-            query = query.eq(condition.field, condition.value);
+        switch (condition.operator) {
+            case 'LIKE':
+                query = query.ilike(condition.field, condition.value);
+                break;
+            case 'IS NOT NULL':
+                query = query.not(condition.field, 'is', null);
+                break;
+            case 'IS NULL':
+                query = query.is(condition.field, null);
+                break;
+            case 'BETWEEN':
+                // value is an array [min, max]
+                query = query.gte(condition.field, condition.value[0]);
+                query = query.lte(condition.field, condition.value[1]);
+                break;
+            case '>=':
+                query = query.gte(condition.field, condition.value);
+                break;
+            case '<=':
+                query = query.lte(condition.field, condition.value);
+                break;
+            case '>':
+                query = query.gt(condition.field, condition.value);
+                break;
+            case '<':
+                query = query.lt(condition.field, condition.value);
+                break;
+            default:
+                query = query.eq(condition.field, condition.value);
         }
     }
 

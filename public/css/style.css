@@ -3,7 +3,7 @@
    ======================================== */
 
 :root {
-    /* Colors */
+    /* Colors - Light Mode */
     --primary: #A46EC6;
     --primary-light: #B68AD1;
     --primary-dark: #9258B3;
@@ -23,6 +23,12 @@
     --danger-light: #FEE2E2;
     --info: #3B82F6;
     --info-light: #DBEAFE;
+    --sidebar-bg: #FFFFFF;
+    --sidebar-text: #1A1A2E;
+    --header-bg: #FFFFFF;
+    --input-bg: #FFFFFF;
+    --hover-bg: #F3F4F6;
+    --active-bg: #EEF2FF;
 
     /* Spacing */
     --space-xs: 4px;
@@ -46,6 +52,39 @@
 
     /* Transitions */
     --transition: 0.3s ease;
+}
+
+/* Dark Mode Variables */
+[data-theme="dark"] {
+    --primary: #B68AD1;
+    --primary-light: #C9A5D8;
+    --primary-dark: #A46EC6;
+    --accent: #F4D061;
+    --accent-hover: #E8C14D;
+    --background: #0F172A;
+    --card-bg: #1E293B;
+    --text-primary: #F1F5F9;
+    --text-secondary: #94A3B8;
+    --text-light: #64748B;
+    --border: #334155;
+    --success: #34D399;
+    --success-light: #064E3B;
+    --warning: #FBBF24;
+    --warning-light: #78350F;
+    --danger: #F87171;
+    --danger-light: #7F1D1D;
+    --info: #60A5FA;
+    --info-light: #1E3A8A;
+    --sidebar-bg: #1E293B;
+    --sidebar-text: #F1F5F9;
+    --header-bg: #1E293B;
+    --input-bg: #334155;
+    --hover-bg: #334155;
+    --active-bg: #312E81;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 15px rgba(0, 0, 0, 0.5);
+    --shadow-xl: 0 10px 25px rgba(0, 0, 0, 0.6);
 }
 
 /* ========================================
@@ -329,8 +368,12 @@ input, select, textarea {
    ======================================== */
 
 #app {
-    display: flex;
+    display: none;
     min-height: 100vh;
+}
+
+#app.active {
+    display: flex;
 }
 
 /* Sidebar */
@@ -3961,6 +4004,278 @@ body {
         padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
         background: rgba(15, 23, 34, 0.94);
         border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+}
+
+/* ========================================
+   Dark Mode Toggle
+   ======================================== */
+
+.theme-toggle {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 2000;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: none;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    box-shadow: var(--shadow-md);
+    transition: var(--transition);
+}
+
+.theme-toggle:hover {
+    transform: scale(1.1);
+    box-shadow: var(--shadow-lg);
+}
+
+.theme-toggle .fa-sun {
+    display: none;
+}
+
+.theme-toggle .fa-moon {
+    display: block;
+}
+
+[data-theme="dark"] .theme-toggle .fa-sun {
+    display: block;
+}
+
+[data-theme="dark"] .theme-toggle .fa-moon {
+    display: none;
+}
+
+/* ========================================
+   Skeleton Loading
+   ======================================== */
+
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--border) 25%,
+        var(--background) 50%,
+        var(--border) 75%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s ease-in-out infinite;
+    border-radius: var(--radius-md);
+}
+
+@keyframes skeleton-loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.skeleton-text {
+    height: 1em;
+    margin-bottom: 0.5em;
+}
+
+.skeleton-text:last-child {
+    width: 80%;
+}
+
+.skeleton-card {
+    height: 200px;
+    margin-bottom: var(--space-md);
+}
+
+.skeleton-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+}
+
+/* ========================================
+   Accessibility Improvements
+   ======================================== */
+
+/* Focus visible styles */
+*:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Skip to main content link */
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: var(--primary);
+    color: white;
+    padding: 8px;
+    text-decoration: none;
+    z-index: 100;
+    border-radius: 0 0 var(--radius-md) 0;
+}
+
+.skip-link:focus {
+    top: 0;
+}
+
+/* Screen reader only */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    :root {
+        --border: #000000;
+        --text-secondary: #000000;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+    
+    .skeleton {
+        animation: none;
+        background: var(--border);
+    }
+}
+
+/* Print styles */
+@media print {
+    .sidebar,
+    .mobile-bottom-nav,
+    .theme-toggle,
+    .btn-primary,
+    .btn-secondary {
+        display: none !important;
+    }
+    
+    .main-content {
+        margin-right: 0 !important;
+        padding: 0 !important;
+    }
+    
+    .card {
+        box-shadow: none !important;
+        border: 1px solid #000 !important;
+        break-inside: avoid;
+    }
+}
+
+/* ========================================
+   Toast Notifications
+   ======================================== */
+
+.toast-container {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.toast {
+    background: var(--card-bg);
+    color: var(--text-primary);
+    padding: 16px 24px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 300px;
+    max-width: 500px;
+    pointer-events: auto;
+    animation: toastSlideIn 0.3s ease;
+    border-right: 4px solid var(--primary);
+}
+
+@keyframes toastSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.toast.success {
+    border-right-color: var(--success);
+}
+
+.toast.error {
+    border-right-color: var(--danger);
+}
+
+.toast.warning {
+    border-right-color: var(--warning);
+}
+
+.toast.info {
+    border-right-color: var(--info);
+}
+
+.toast i {
+    font-size: 1.2rem;
+}
+
+.toast.success i {
+    color: var(--success);
+}
+
+.toast.error i {
+    color: var(--danger);
+}
+
+.toast.warning i {
+    color: var(--warning);
+}
+
+.toast.info i {
+    color: var(--info);
+}
+
+.toast-message {
+    flex: 1;
+    font-weight: 500;
+}
+
+.toast-close {
+    background: none;
+    border: none;
+    color: var(--text-light);
+    cursor: pointer;
+    padding: 4px;
+    font-size: 1rem;
+    transition: color 0.2s;
+}
+
+.toast-close:hover {
+    color: var(--text-primary);
+}
         border-radius: 18px;
         box-shadow: 0 16px 36px rgba(2, 6, 23, 0.34);
         backdrop-filter: blur(8px);

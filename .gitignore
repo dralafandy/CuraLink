@@ -59,3 +59,4 @@ public/uploads/products/*
 !public/uploads/products/*.svg
 !public/uploads/products/*.png
 !public/uploads/products/*.jpeg
+.blackboxcli/

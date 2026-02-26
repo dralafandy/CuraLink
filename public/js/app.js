@@ -1,4 +1,4 @@
-﻿// PharmaConnect - Frontend JavaScript
+// PharmaConnect - Frontend JavaScript
 
 // ========================================
 // Configuration & State
@@ -237,9 +237,15 @@ function navigateTo(page) {
         }
     });
     
-    // Update pages
+    // Update pages - add null check to prevent error when page doesn't exist
     document.querySelectorAll('.content-page').forEach(p => p.classList.remove('active'));
-    document.getElementById(`${page}-page`).classList.add('active');
+    const targetPage = document.getElementById(`${page}-page`);
+    if (targetPage) {
+        targetPage.classList.add('active');
+    } else {
+        console.warn(`Page element #${page}-page not found in DOM`);
+        return;
+    }
     
     // Update title
     const titles = {
@@ -253,9 +259,15 @@ function navigateTo(page) {
         'invoices': 'الفواتير',
         'notifications': 'الإشعارات',
         'ratings': 'التقييمات',
-        'profile': 'الملف الشخصي'
+        'profile': 'الملف الشخصي',
+        'locations': 'مواقعي',
+        'delivery-zones': 'مناطق التوصيل',
+        'map': 'خريطة المخازن'
     };
-    document.getElementById('page-title').textContent = titles[page] || page;
+    const pageTitle = document.getElementById('page-title');
+    if (pageTitle) {
+        pageTitle.textContent = titles[page] || page;
+    }
     syncMobileBottomNav(page);
     
     // Load data for page
@@ -292,6 +304,15 @@ function navigateTo(page) {
             break;
         case 'profile':
             loadProfile();
+            break;
+        case 'locations':
+            loadLocationsPage();
+            break;
+        case 'delivery-zones':
+            loadDeliveryZonesPage();
+            break;
+        case 'map':
+            loadMapPage();
             break;
     }
     
@@ -1094,11 +1115,11 @@ async function loadPharmacyProducts() {
         categorySelect.innerHTML = '<option value="">كل الفئات</option>' + 
             categoriesData.categories.map(c => `<option value="${c}">${c}</option>`).join('');
         
-        // Load warehouses
+        // Load warehouses with zone info
         const warehousesData = await apiCall('/auth/warehouses');
         const warehouseSelect = document.getElementById('warehouse-filter');
         warehouseSelect.innerHTML = '<option value="">كل المخازن</option>' + 
-            warehousesData.warehouses.map(w => `<option value="${w.id}">${w.username}</option>`).join('');
+            warehousesData.warehouses.map(w => `<option value="${w.id}">${w.username}${w.zone ? ` (${w.zone})` : ''}</option>`).join('');
 
         await loadWishlistIds();
         
@@ -1152,13 +1173,14 @@ function highlightQuery(text, query) {
 function getActiveBrowseFiltersCount() {
     const category = document.getElementById('category-filter')?.value || '';
     const warehouse = document.getElementById('warehouse-filter')?.value || '';
+    const zone = document.getElementById('zone-filter')?.value || '';
     const sort = document.getElementById('sort-filter')?.value || '';
     const minPrice = document.getElementById('min-price-filter')?.value || '';
     const maxPrice = document.getElementById('max-price-filter')?.value || '';
     const offersOnly = document.getElementById('offers-filter')?.value || '';
     const search = (document.getElementById('product-search')?.value || '').trim();
 
-    return [search, category, warehouse, sort, minPrice, maxPrice, offersOnly]
+    return [search, category, warehouse, zone, sort, minPrice, maxPrice, offersOnly]
         .filter(value => String(value).trim() !== '').length;
 }
 
@@ -1169,14 +1191,15 @@ function getCurrentQuickFilterKey() {
     const offers = document.getElementById('offers-filter')?.value || '';
     const category = document.getElementById('category-filter')?.value || '';
     const warehouse = document.getElementById('warehouse-filter')?.value || '';
+    const zone = document.getElementById('zone-filter')?.value || '';
     const search = (document.getElementById('product-search')?.value || '').trim();
 
-    if (!search && !category && !warehouse && !sort && !minPrice && !maxPrice && !offers) return 'default';
-    if (!search && !category && !warehouse && !sort && !minPrice && maxPrice === '100' && !offers) return 'under100';
-    if (!search && !category && !warehouse && !sort && !minPrice && maxPrice === '250' && !offers) return 'under250';
-    if (!search && !category && !warehouse && sort === 'price_asc' && !minPrice && !maxPrice && !offers) return 'priceAsc';
-    if (!search && !category && !warehouse && sort === 'discount_desc' && !minPrice && !maxPrice && !offers) return 'discountDesc';
-    if (!search && !category && !warehouse && !sort && !minPrice && !maxPrice && offers === 'true') return 'offers';
+    if (!search && !category && !warehouse && !zone && !sort && !minPrice && !maxPrice && !offers) return 'default';
+    if (!search && !category && !warehouse && !zone && !sort && !minPrice && maxPrice === '100' && !offers) return 'under100';
+    if (!search && !category && !warehouse && !zone && !sort && !minPrice && maxPrice === '250' && !offers) return 'under250';
+    if (!search && !category && !warehouse && !zone && sort === 'price_asc' && !minPrice && !maxPrice && !offers) return 'priceAsc';
+    if (!search && !category && !warehouse && !zone && sort === 'discount_desc' && !minPrice && !maxPrice && !offers) return 'discountDesc';
+    if (!search && !category && !warehouse && !zone && !sort && !minPrice && !maxPrice && offers === 'true') return 'offers';
     return '';
 }
 
@@ -1194,6 +1217,7 @@ function applyQuickFilter(filterKey) {
     const offersFilter = document.getElementById('offers-filter');
     const categoryFilter = document.getElementById('category-filter');
     const warehouseFilter = document.getElementById('warehouse-filter');
+    const zoneFilter = document.getElementById('zone-filter');
     const searchInput = document.getElementById('product-search');
 
     if (!sortFilter || !minPriceFilter || !maxPriceFilter || !offersFilter) return;
@@ -1202,6 +1226,7 @@ function applyQuickFilter(filterKey) {
     if (searchInput) searchInput.value = '';
     if (categoryFilter) categoryFilter.value = '';
     if (warehouseFilter) warehouseFilter.value = '';
+    if (zoneFilter) zoneFilter.value = '';
     sortFilter.value = '';
     minPriceFilter.value = '';
     maxPriceFilter.value = '';
@@ -1284,6 +1309,7 @@ async function searchProducts(page = pharmacyProductsPage || 1) {
     const search = document.getElementById('product-search').value;
     const category = document.getElementById('category-filter').value;
     const warehouse_id = document.getElementById('warehouse-filter').value;
+    const zone = document.getElementById('zone-filter')?.value || '';
     const sort = document.getElementById('sort-filter')?.value || '';
     const minPrice = document.getElementById('min-price-filter')?.value || '';
     const maxPrice = document.getElementById('max-price-filter')?.value || '';
@@ -1581,6 +1607,7 @@ function clearFilters() {
     const searchInput = document.getElementById('product-search');
     const categoryFilter = document.getElementById('category-filter');
     const warehouseFilter = document.getElementById('warehouse-filter');
+    const zoneFilter = document.getElementById('zone-filter');
     const sortFilter = document.getElementById('sort-filter');
     const minPriceFilter = document.getElementById('min-price-filter');
     const maxPriceFilter = document.getElementById('max-price-filter');
@@ -1589,6 +1616,7 @@ function clearFilters() {
     if (searchInput) searchInput.value = '';
     if (categoryFilter) categoryFilter.value = '';
     if (warehouseFilter) warehouseFilter.value = '';
+    if (zoneFilter) zoneFilter.value = '';
     if (sortFilter) sortFilter.value = '';
     if (minPriceFilter) minPriceFilter.value = '';
     if (maxPriceFilter) maxPriceFilter.value = '';
@@ -1597,6 +1625,39 @@ function clearFilters() {
     pharmacyProductsPage = 1;
     updateBrowseFiltersState();
     searchProducts(1);
+}
+
+// Handle zone filter change - reload warehouses based on selected zone
+async function onZoneFilterChange() {
+    const zoneFilter = document.getElementById('zone-filter');
+    const warehouseFilter = document.getElementById('warehouse-filter');
+    
+    if (!zoneFilter || !warehouseFilter) return;
+    
+    const selectedZone = zoneFilter.value;
+    
+    try {
+        // Load warehouses filtered by zone
+        const endpoint = selectedZone ? `/auth/warehouses?zone=${encodeURIComponent(selectedZone)}` : '/auth/warehouses';
+        const warehousesData = await apiCall(endpoint);
+        
+        // Update warehouse dropdown
+        const currentWarehouseValue = warehouseFilter.value;
+        warehouseFilter.innerHTML = '<option value="">كل المخازن</option>' + 
+            warehousesData.warehouses.map(w => `<option value="${w.id}">${w.username}${w.zone ? ` (${w.zone})` : ''}</option>`).join('');
+        
+        // Restore selection if still valid
+        if (currentWarehouseValue && warehousesData.warehouses.some(w => w.id == currentWarehouseValue)) {
+            warehouseFilter.value = currentWarehouseValue;
+        } else {
+            warehouseFilter.value = '';
+        }
+        
+        // Trigger product search
+        searchProducts(1);
+    } catch (error) {
+        console.error('Error loading warehouses by zone:', error);
+    }
 }
 
 function toggleView(view) {
@@ -3094,10 +3155,308 @@ document.querySelectorAll('.modal').forEach(modal => {
 });
 
 // ========================================
+// Dark Mode
+// ========================================
+
+function initDarkMode() {
+    // Check for saved theme preference
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    
+    if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+    
+    // Create theme toggle button
+    const themeToggle = document.createElement('button');
+    themeToggle.className = 'theme-toggle';
+    themeToggle.setAttribute('aria-label', 'تبديل الوضع الداكن');
+    themeToggle.innerHTML = `
+        <i class="fas fa-moon"></i>
+        <i class="fas fa-sun"></i>
+    `;
+    themeToggle.addEventListener('click', toggleDarkMode);
+    document.body.appendChild(themeToggle);
+}
+
+function toggleDarkMode() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    
+    showToast(newTheme === 'dark' ? 'تم تفعيل الوضع الداكن' : 'تم تفعيل الوضع الفاتح', 'success');
+}
+
+// ========================================
+// Skeleton Loading
+// ========================================
+
+function showSkeleton(container, type = 'card', count = 3) {
+    const skeletonHTML = Array(count).fill(0).map(() => {
+        if (type === 'card') {
+            return '<div class="skeleton skeleton-card"></div>';
+        } else if (type === 'text') {
+            return `
+                <div class="skeleton skeleton-text" style="width: 100%;"></div>
+                <div class="skeleton skeleton-text" style="width: 80%;"></div>
+                <div class="skeleton skeleton-text" style="width: 60%;"></div>
+            `;
+        } else if (type === 'avatar') {
+            return '<div class="skeleton skeleton-avatar"></div>';
+        }
+        return '<div class="skeleton"></div>';
+    }).join('');
+    
+    container.innerHTML = `<div class="skeleton-container">${skeletonHTML}</div>`;
+}
+
+function hideSkeleton(container) {
+    const skeletonContainer = container.querySelector('.skeleton-container');
+    if (skeletonContainer) {
+        skeletonContainer.remove();
+    }
+}
+
+// ========================================
+// Enhanced Toast Notifications
+// ========================================
+
+function initToastContainer() {
+    if (!document.getElementById('toast-container')) {
+        const container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+}
+
+function showToast(message, type = 'info', duration = 3000) {
+    initToastContainer();
+    const container = document.getElementById('toast-container');
+    
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'polite');
+    
+    const iconMap = {
+        success: 'check-circle',
+        error: 'exclamation-circle',
+        warning: 'exclamation-triangle',
+        info: 'info-circle'
+    };
+    
+    toast.innerHTML = `
+        <i class="fas fa-${iconMap[type] || 'info-circle'}"></i>
+        <span class="toast-message">${message}</span>
+        <button class="toast-close" aria-label="إغلاق">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+    
+    // Close button functionality
+    toast.querySelector('.toast-close').addEventListener('click', () => {
+        toast.style.animation = 'toastSlideOut 0.3s ease forwards';
+        setTimeout(() => toast.remove(), 300);
+    });
+    
+    container.appendChild(toast);
+    
+    // Auto remove
+    if (duration > 0) {
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.style.animation = 'toastSlideOut 0.3s ease forwards';
+                setTimeout(() => toast.remove(), 300);
+            }
+        }, duration);
+    }
+    
+    return toast;
+}
+
+// Add toast slide out animation
+const toastStyles = document.createElement('style');
+toastStyles.textContent = `
+    @keyframes toastSlideOut {
+        from {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        to {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+    }
+`;
+document.head.appendChild(toastStyles);
+
+// ========================================
+// Loading States
+// ========================================
+
+function showLoading(element, message = 'جاري التحميل...') {
+    if (typeof element === 'string') {
+        element = document.getElementById(element);
+    }
+    if (!element) return;
+    
+    element.classList.add('loading');
+    element.setAttribute('aria-busy', 'true');
+    
+    // Save original content
+    if (!element.dataset.originalContent) {
+        element.dataset.originalContent = element.innerHTML;
+    }
+    
+    element.innerHTML = `
+        <div class="spinner"></div>
+        <span class="loading-text">${message}</span>
+    `;
+}
+
+function hideLoading(element) {
+    if (typeof element === 'string') {
+        element = document.getElementById(element);
+    }
+    if (!element) return;
+    
+    element.classList.remove('loading');
+    element.removeAttribute('aria-busy');
+    
+    // Restore original content
+    if (element.dataset.originalContent) {
+        element.innerHTML = element.dataset.originalContent;
+        delete element.dataset.originalContent;
+    }
+}
+
+// ========================================
+// Accessibility Helpers
+// ========================================
+
+function announceToScreenReader(message, priority = 'polite') {
+    const announcement = document.createElement('div');
+    announcement.setAttribute('role', 'status');
+    announcement.setAttribute('aria-live', priority);
+    announcement.className = 'sr-only';
+    announcement.textContent = message;
+    
+    document.body.appendChild(announcement);
+    
+    setTimeout(() => {
+        announcement.remove();
+    }, 1000);
+}
+
+function trapFocus(element) {
+    const focusableElements = element.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    
+    if (focusableElements.length === 0) return;
+    
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    
+    element.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab') {
+            if (e.shiftKey && document.activeElement === firstElement) {
+                e.preventDefault();
+                lastElement.focus();
+            } else if (!e.shiftKey && document.activeElement === lastElement) {
+                e.preventDefault();
+                firstElement.focus();
+            }
+        }
+        
+        if (e.key === 'Escape') {
+            const closeBtn = element.querySelector('.modal-close, [data-close]');
+            if (closeBtn) closeBtn.click();
+        }
+    });
+}
+
+// ========================================
+// Keyboard Shortcuts
+// ========================================
+
+function initKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        // Ignore if in input field
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        
+        // Ctrl/Cmd + K for search
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            e.preventDefault();
+            const searchInput = document.querySelector('input[type="search"], .search-input');
+            if (searchInput) {
+                searchInput.focus();
+            }
+        }
+        
+        // Escape to close modals
+        if (e.key === 'Escape') {
+            const activeModal = document.querySelector('.modal.active');
+            if (activeModal) {
+                activeModal.classList.remove('active');
+            }
+        }
+        
+        // Ctrl/Cmd + / for help
+        if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+            e.preventDefault();
+            showKeyboardShortcutsHelp();
+        }
+    });
+}
+
+function showKeyboardShortcutsHelp() {
+    const shortcuts = [
+        { key: 'Ctrl + K', action: 'البحث' },
+        { key: 'Escape', action: 'إغلاق النافذة' },
+        { key: 'Ctrl + /', action: 'عرض اختصارات لوحة المفاتيح' },
+        { key: 'Tab', action: 'التنقل بين العناصر' },
+        { key: 'Enter', action: 'تفعيل العنصر المحدد' }
+    ];
+    
+    const modal = document.createElement('div');
+    modal.className = 'modal active';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>اختصارات لوحة المفاتيح</h3>
+                <button class="modal-close" onclick="this.closest('.modal').remove()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="shortcuts-list" style="display: grid; gap: 12px;">
+                    ${shortcuts.map(s => `
+                        <div style="display: flex; justify-content: space-between; padding: 12px; background: var(--background); border-radius: var(--radius-md);">
+                            <kbd style="background: var(--card-bg); padding: 4px 8px; border-radius: var(--radius-sm); font-family: monospace;">${s.key}</kbd>
+                            <span>${s.action}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    trapFocus(modal);
+}
+
+// ========================================
 // Initialize
 // ========================================
 
 document.addEventListener('DOMContentLoaded', () => {
+    initDarkMode();
+    initToastContainer();
+    initKeyboardShortcuts();
     checkAuth();
     
     // Setup nav clicks
@@ -3111,3 +3470,872 @@ document.addEventListener('DOMContentLoaded', () => {
     updateBrowseFiltersState();
     setFiltersPanelExpanded(!window.matchMedia('(max-width: 768px)').matches);
 });
+
+// ============================================
+// Map Page Functions
+// ============================================
+
+let map = null;
+let mapMarkers = [];
+let userLocation = null;
+
+async function loadMapPage() {
+    try {
+        // Load Google Maps or use a simple map implementation
+        const mapContainer = document.getElementById('map');
+        if (!mapContainer) return;
+
+        // Show loading
+        mapContainer.innerHTML = `
+            <div class="empty-state" style="height: 100%;">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>جاري تحميل الخريطة...</p>
+            </div>
+        `;
+
+        // Get user's location
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    userLocation = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+                    loadNearbyWarehouses();
+                },
+                () => {
+                    // Default to Cairo if location not available
+                    userLocation = { lat: 30.0444, lng: 31.2357 };
+                    loadNearbyWarehouses();
+                }
+            );
+        } else {
+            userLocation = { lat: 30.0444, lng: 31.2357 };
+            loadNearbyWarehouses();
+        }
+    } catch (error) {
+        console.error('Load map error:', error);
+    }
+}
+
+async function loadNearbyWarehouses() {
+    try {
+        if (!userLocation) return;
+
+        const radius = document.getElementById('map-radius')?.value || 50;
+        const zone = document.getElementById('map-zone-filter')?.value || '';
+
+        let endpoint = `/locations/warehouses/nearby?lat=${userLocation.lat}&lng=${userLocation.lng}&radius=${radius}`;
+        if (zone) {
+            endpoint += `&zone=${encodeURIComponent(zone)}`;
+        }
+
+        const data = await apiCall(endpoint);
+        renderWarehousesOnMap(data.warehouses);
+        renderNearbyWarehousesList(data.warehouses);
+    } catch (error) {
+        console.error('Load nearby warehouses error:', error);
+    }
+}
+
+function renderWarehousesOnMap(warehouses) {
+    const mapContainer = document.getElementById('map');
+    if (!mapContainer) return;
+
+    // Simple map implementation using HTML/CSS
+    let html = `
+        <div class="simple-map">
+            <div class="map-user-location">
+                <i class="fas fa-user-circle"></i>
+                <span>موقعك</span>
+            </div>
+    `;
+
+    warehouses.forEach((warehouse, index) => {
+        const distance = warehouse.distance ? `${warehouse.distance.toFixed(1)} كم` : '';
+        html += `
+            <div class="map-warehouse-marker" style="--index: ${index}">
+                <div class="marker-icon">
+                    <i class="fas fa-warehouse"></i>
+                </div>
+                <div class="marker-info">
+                    <strong>${warehouse.username}</strong>
+                    <span>${distance}</span>
+                    ${warehouse.zone ? `<span class="zone-badge">${warehouse.zone}</span>` : ''}
+                </div>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+    mapContainer.innerHTML = html;
+}
+
+function renderNearbyWarehousesList(warehouses) {
+    const listContainer = document.getElementById('nearby-warehouses-list');
+    if (!listContainer) return;
+
+    if (warehouses.length === 0) {
+        listContainer.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-warehouse"></i>
+                <p>لا توجد مخازن في هذا النطاق</p>
+            </div>
+        `;
+        return;
+    }
+
+    listContainer.innerHTML = warehouses.map(w => `
+        <div class="warehouse-list-item" onclick="navigateToWarehouse(${w.id})">
+            <div class="warehouse-info">
+                <strong>${w.username}</strong>
+                <span>${w.address || 'لا يوجد عنوان'}</span>
+                ${w.zone ? `<span class="zone-badge">${w.zone}</span>` : ''}
+            </div>
+            <div class="warehouse-meta">
+                ${w.distance ? `<span class="distance">${w.distance.toFixed(1)} كم</span>` : ''}
+                ${w.rating ? `<span class="rating"><i class="fas fa-star"></i> ${w.rating.toFixed(1)}</span>` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function updateMapRadius() {
+    const radius = document.getElementById('map-radius')?.value || 50;
+    const radiusDisplay = document.getElementById('map-radius-value');
+    if (radiusDisplay) {
+        radiusDisplay.textContent = `${radius} كم`;
+    }
+}
+
+function filterMapWarehouses() {
+    loadNearbyWarehouses();
+}
+
+function findNearbyWarehouses() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                userLocation = {
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                };
+                loadNearbyWarehouses();
+                showToast('تم تحديد موقعك بنجاح', 'success');
+            },
+            () => {
+                showToast('تعذر تحديد الموقع، استخدام الموقع الافتراضي', 'warning');
+            }
+        );
+    }
+}
+
+function navigateToWarehouse(warehouseId) {
+    navigateTo('browse-products');
+    setTimeout(() => {
+        const warehouseFilter = document.getElementById('warehouse-filter');
+        if (warehouseFilter) {
+            warehouseFilter.value = warehouseId;
+            searchProducts(1);
+        }
+    }, 100);
+}
+
+// ============================================
+// Locations Page Functions
+// ============================================
+async function loadLocationsPage() {
+    try {
+        // Show loading state in the existing locations-grid element
+        const grid = document.getElementById('locations-grid');
+        if (grid) {
+            grid.innerHTML = `
+                <div class="loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>جاري تحميل المواقع...</p>
+                </div>
+            `;
+        }
+        
+        // Load saved locations
+        const locations = await loadMyLocations();
+        renderLocationsList(locations);
+        
+    } catch (error) {
+        console.error('Load locations page error:', error);
+        showToast('فشل تحميل الصفحة', 'error');
+    }
+}
+
+function renderLocationsList(locations) {
+    const container = document.getElementById('locations-grid');
+    if (!container) return;
+    
+    if (!locations || locations.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-map-marker-alt"></i>
+                <p>لا توجد مواقع محفوظة</p>
+                <button class="btn btn-primary" onclick="showLocationModal()">
+                    إضافة موقع جديد
+                </button>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = locations.map(loc => `
+        <div class="location-card ${loc.is_primary ? 'primary' : ''}">
+            <div class="location-header">
+                <div class="location-type">
+                    <i class="fas fa-${loc.location_type === 'warehouse' ? 'warehouse' : 'prescription-bottle'}"></i>
+                    <span>${loc.location_type === 'warehouse' ? 'مخزن' : loc.location_type === 'delivery_point' ? 'نقطة توصيل' : 'صيدلية'}</span>
+                </div>
+                ${loc.is_primary ? '<span class="badge badge-primary">أساسي</span>' : ''}
+            </div>
+            <div class="location-name">
+                <h4>${loc.name}</h4>
+            </div>
+            <div class="location-address">
+                <p>${loc.governorate_name || ''}${loc.city_name ? ' - ' + loc.city_name : ''}${loc.district_name ? ' - ' + loc.district_name : ''}</p>
+                <p>${loc.address || ''}</p>
+                ${loc.building_number ? `<p>مبنى ${loc.building_number}${loc.floor_number ? ' - طابق ' + loc.floor_number : ''}${loc.apartment_number ? ' - شقة ' + loc.apartment_number : ''}</p>` : ''}
+            </div>
+            <div class="location-coords">
+                <small>الإحداثيات: ${loc.latitude?.toFixed(4)}, ${loc.longitude?.toFixed(4)}</small>
+            </div>
+            <div class="location-actions">
+                <button class="btn-icon" onclick="editLocation(${loc.id})" title="تعديل">
+                    <i class="fas fa-edit"></i>
+                </button>
+                ${!loc.is_primary ? `
+                    <button class="btn-icon" onclick="setPrimaryLocation(${loc.id})" title="جعل أساسي">
+                        <i class="fas fa-star"></i>
+                    </button>
+                ` : ''}
+                <button class="btn-icon btn-danger" onclick="removeLocation(${loc.id})" title="حذف">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function editLocation(locationId) {
+    // Load location data and show modal
+    loadMyLocations().then(locations => {
+        const location = locations.find(l => l.id === locationId);
+        if (location) {
+            showLocationModal(location);
+        }
+    });
+}
+
+async function setPrimaryLocation(locationId) {
+    try {
+        const locations = await loadMyLocations();
+        const location = locations.find(l => l.id === locationId);
+        if (location) {
+            await updateLocation(locationId, { ...location, is_primary: true });
+            loadLocationsPage();
+        }
+    } catch (err) {
+        console.error('Set primary error:', err);
+    }
+}
+
+async function removeLocation(locationId) {
+    if (!confirm('هل أنت متأكد من حذف هذا الموقع؟')) return;
+    
+    try {
+        await deleteLocation(locationId);
+        loadLocationsPage();
+    } catch (err) {
+        console.error('Remove location error:', err);
+    }
+}
+
+// ============================================
+// Delivery Zones Page Functions (Warehouse)
+// ============================================
+async function loadDeliveryZonesPage() {
+    try {
+        // Only allow warehouses - show message in delivery-zones-list if not warehouse
+        if (currentUser?.role !== 'warehouse') {
+            const listContainer = document.getElementById('delivery-zones-list');
+            if (listContainer) {
+                listContainer.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-lock"></i>
+                        <p>هذه الصفحة للمخازن فقط</p>
+                    </div>
+                `;
+            }
+            return;
+        }
+        
+        // Show loading state
+        const listContainer = document.getElementById('delivery-zones-list');
+        if (listContainer) {
+            listContainer.innerHTML = `
+                <div class="loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>جاري تحميل مناطق التوصيل...</p>
+                </div>
+            `;
+        }
+        
+        // Load delivery zones using the function from delivery-zones.js
+        if (typeof window.loadDeliveryZones === 'function') {
+            window.loadDeliveryZones();
+        }
+        
+    } catch (error) {
+        console.error('Load delivery zones page error:', error);
+        showToast('فشل تحميل الصفحة', 'error');
+    }
+}
+
+// ============================================
+// Contracts Page Functions
+// ============================================
+
+async function loadContractsPage() {
+    try {
+        const statsData = await apiCall('/contracts/stats/overview');
+        const stats = statsData.stats;
+        
+        document.getElementById('total-contracts').textContent = stats.total_contracts || 0;
+        document.getElementById('active-contracts').textContent = stats.active_contracts || 0;
+        document.getElementById('pending-contracts').textContent = stats.pending_signatures || 0;
+
+        // Show create button for warehouses
+        if (currentUser?.role === 'warehouse') {
+            document.getElementById('create-contract-btn').style.display = 'inline-flex';
+        }
+
+        const contractsData = await apiCall('/contracts');
+        renderContractsList(contractsData.contracts);
+    } catch (error) {
+        console.error('Load contracts error:', error);
+    }
+}
+
+function renderContractsList(contracts) {
+    const container = document.getElementById('contracts-list');
+    if (!container) return;
+
+    if (!contracts || contracts.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-file-contract"></i>
+                <p>لا توجد عقود حالياً</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = contracts.map(c => `
+        <div class="contract-card ${c.status}">
+            <div class="contract-header">
+                <h4>${c.title}</h4>
+                <span class="contract-status ${c.status}">${getContractStatusText(c.status)}</span>
+            </div>
+            <div class="contract-details">
+                <p><strong>رقم العقد:</strong> ${c.contract_number}</p>
+                <p><strong>${currentUser?.role === 'pharmacy' ? 'المخزن' : 'الصيدلية'}:</strong> ${currentUser?.role === 'pharmacy' ? c.warehouse_name : c.pharmacy_name}</p>
+                <p><strong>تاريخ البدء:</strong> ${formatDate(c.start_date)}</p>
+                <p><strong>تاريخ الانتهاء:</strong> ${formatDate(c.end_date)}</p>
+                ${c.discount_percent > 0 ? `<p><strong>نسبة الخصم:</strong> ${c.discount_percent}%</p>` : ''}
+                ${c.credit_limit > 0 ? `<p><strong>حد الائتمان:</strong> ${c.credit_limit} ج.م</p>` : ''}
+            </div>
+            <div class="contract-actions">
+                ${c.status === 'draft' && currentUser?.role === 'pharmacy' && !c.signed_by_pharmacy ? `
+                    <button class="btn-primary" onclick="signContract(${c.id})">
+                        <i class="fas fa-signature"></i> توقيع العقد
+                    </button>
+                ` : ''}
+                <button class="btn-secondary" onclick="viewContractDetails(${c.id})">
+                    <i class="fas fa-eye"></i> التفاصيل
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function getContractStatusText(status) {
+    const statuses = {
+        draft: 'مسودة',
+        active: 'نشط',
+        expired: 'منتهي',
+        terminated: 'مُنهي',
+        suspended: 'مُعلق'
+    };
+    return statuses[status] || status;
+}
+
+function formatDate(dateString) {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('ar-EG');
+}
+
+async function signContract(contractId) {
+    try {
+        await apiCall(`/contracts/${contractId}/sign`, 'POST');
+        showToast('تم توقيع العقد بنجاح', 'success');
+        loadContractsPage();
+    } catch (error) {
+        console.error('Sign contract error:', error);
+    }
+}
+
+function viewContractDetails(contractId) {
+    // Navigate to contract details or show modal
+    showToast('جاري تحميل تفاصيل العقد...', 'info');
+}
+
+function showCreateContractModal() {
+    showToast('سيتم فتح نموذج إنشاء عقد جديد', 'info');
+}
+
+// ============================================
+// Subscriptions Page Functions
+// ============================================
+
+async function loadSubscriptionsPage() {
+    try {
+        const data = await apiCall('/subscriptions');
+        renderSubscriptionsList(data.subscriptions);
+    } catch (error) {
+        console.error('Load subscriptions error:', error);
+    }
+}
+
+function renderSubscriptionsList(subscriptions) {
+    const container = document.getElementById('subscriptions-list');
+    if (!container) return;
+
+    if (!subscriptions || subscriptions.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-sync-alt"></i>
+                <p>لا توجد اشتراكات حالياً</p>
+                <button class="btn-primary" onclick="showCreateSubscriptionModal()">
+                    <i class="fas fa-plus"></i> إنشاء اشتراك جديد
+                </button>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = subscriptions.map(s => `
+        <div class="subscription-card ${s.status}">
+            <div class="subscription-header">
+                <h4>${s.name}</h4>
+                <span class="subscription-status ${s.status}">${getSubscriptionStatusText(s.status)}</span>
+            </div>
+            <div class="subscription-details">
+                <p><strong>${currentUser?.role === 'pharmacy' ? 'المخزن' : 'الصيدلية'}:</strong> ${currentUser?.role === 'pharmacy' ? s.warehouse_name : s.pharmacy_name}</p>
+                <p><strong>التكرار:</strong> ${getFrequencyText(s.frequency)}</p>
+                <p><strong>التوصيل القادم:</strong> ${formatDate(s.next_delivery_date)}</p>
+                <p><strong>عدد المنتجات:</strong> ${s.items_count}</p>
+                <p><strong>الطلبات المنفذة:</strong> ${s.orders_count}</p>
+            </div>
+            <div class="subscription-actions">
+                ${s.status === 'active' ? `
+                    <button class="btn-primary" onclick="generateOrderFromSubscription(${s.id})">
+                        <i class="fas fa-shopping-cart"></i> إنشاء طلب الآن
+                    </button>
+                    <button class="btn-secondary" onclick="pauseSubscription(${s.id})">
+                        <i class="fas fa-pause"></i> إيقاف مؤقت
+                    </button>
+                ` : s.status === 'paused' ? `
+                    <button class="btn-primary" onclick="resumeSubscription(${s.id})">
+                        <i class="fas fa-play"></i> استئناف
+                    </button>
+                ` : ''}
+                <button class="btn-secondary" onclick="viewSubscriptionDetails(${s.id})">
+                    <i class="fas fa-eye"></i> التفاصيل
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function getSubscriptionStatusText(status) {
+    const statuses = {
+        active: 'نشط',
+        paused: 'متوقف مؤقتاً',
+        cancelled: 'ملغى',
+        completed: 'مكتمل'
+    };
+    return statuses[status] || status;
+}
+
+function getFrequencyText(frequency) {
+    const frequencies = {
+        weekly: 'أسبوعي',
+        biweekly: 'كل أسبوعين',
+        monthly: 'شهري',
+        bimonthly: 'كل شهرين',
+        quarterly: 'ربع سنوي'
+    };
+    return frequencies[frequency] || frequency;
+}
+
+async function generateOrderFromSubscription(subscriptionId) {
+    try {
+        await apiCall(`/subscriptions/${subscriptionId}/generate-order`, 'POST');
+        showToast('تم إنشاء الطلب بنجاح', 'success');
+        loadSubscriptionsPage();
+    } catch (error) {
+        console.error('Generate order error:', error);
+    }
+}
+
+async function pauseSubscription(subscriptionId) {
+    try {
+        await apiCall(`/subscriptions/${subscriptionId}/pause`, 'POST');
+        showToast('تم إيقاف الاشتراك مؤقتاً', 'success');
+        loadSubscriptionsPage();
+    } catch (error) {
+        console.error('Pause subscription error:', error);
+    }
+}
+
+async function resumeSubscription(subscriptionId) {
+    try {
+        await apiCall(`/subscriptions/${subscriptionId}/resume`, 'POST');
+        showToast('تم استئناف الاشتراك', 'success');
+        loadSubscriptionsPage();
+    } catch (error) {
+        console.error('Resume subscription error:', error);
+    }
+}
+
+function viewSubscriptionDetails(subscriptionId) {
+    showToast('جاري تحميل تفاصيل الاشتراك...', 'info');
+}
+
+function showCreateSubscriptionModal() {
+    showToast('سيتم فتح نموذج إنشاء اشتراك جديد', 'info');
+}
+
+// ============================================
+// Tenders Page Functions
+// ============================================
+
+let currentTendersTab = 'public';
+
+async function loadTendersPage() {
+    try {
+        const data = await apiCall(`/tenders?my_tenders=${currentTendersTab === 'my'}`);
+        renderTendersList(data.tenders);
+        
+        // Show create button for pharmacies
+        if (currentUser?.role === 'pharmacy') {
+            document.getElementById('create-tender-btn').style.display = 'inline-flex';
+        }
+    } catch (error) {
+        console.error('Load tenders error:', error);
+    }
+}
+
+function renderTendersList(tenders) {
+    const container = document.getElementById('tenders-list');
+    if (!container) return;
+
+    if (!tenders || tenders.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-gavel"></i>
+                <p>لا توجد тенدرات حالياً</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = tenders.map(t => `
+        <div class="tender-card ${t.status}" data-tender-id="${t.id}">
+            <div class="tender-header">
+                <h4>${escapeHtml(t.title)}</h4>
+                <span class="tender-status ${t.status}">${getTenderStatusText(t.status)}</span>
+            </div>
+            <div class="tender-details">
+                ${ t.description ? `<p><strong>الوصف:</strong> ${escapeHtml(t.description.substring(0, 100))}${ t.description.length > 100 ? '...' : '' }</p>` : '' }
+                <p><strong>الكمية المطلوبة:</strong> ${Number(t.quantity || 0).toLocaleString()}</p>
+                ${ t.budget ? `<p><strong>الميزانية:</strong> ${Number(t.budget).toFixed(2)} ج.م</p>` : '' }
+                ${ t.pharmacy_name ? `<p><strong>الصيدلية:</strong> ${escapeHtml(t.pharmacy_name)}</p>` : '' }
+                ${ t.items_count ? `<p><strong>عدد الأصناف:</strong> ${Number(t.items_count)}</p>` : '' }
+                ${ t.bids_count !== undefined ? `<p><strong>عدد العروض:</strong> ${Number(t.bids_count)}</p>` : '' }
+                ${ t.deadline ? `<p><strong>موعد التسليم:</strong> ${formatDate(t.deadline)}</p>` : '' }
+            </div>
+            <div class="tender-footer">
+                <button class="btn btn-primary view-tender-btn" data-tender-id="${t.id}">
+                    عرض التفاصيل
+                </button>
+                ${currentUser?.role === 'warehouse' && t.status === 'open' && !t.has_my_bid && !t.my_bids_count ? `
+                    <button class="btn btn-success submit-bid-btn" data-tender-id="${t.id}">
+                        تقديم عرض
+                    </button>
+                ` : ''}
+                ${t.my_bid_id ? `
+                    <span class="bid-status ${t.my_bid_status}">تم تقديم عرض</span>
+                ` : ''}
+            </div>
+        </div>
+    `).join('');
+
+    // Add event listeners
+    container.querySelectorAll('.view-tender-btn').forEach(btn => {
+        btn.addEventListener('click', () => viewTenderDetails(btn.dataset.tenderId));
+    });
+
+    container.querySelectorAll('.submit-bid-btn').forEach(btn => {
+        btn.addEventListener('click', () => showSubmitBidModal(btn.dataset.tenderId));
+    });
+}
+
+function getTenderStatusText(status) {
+    const statusMap = {
+        'open': 'مفتوح',
+        'closed': 'مغلق',
+        'awarded': 'تم الترسية',
+        'cancelled': 'ملغي'
+    };
+    return statusMap[status] || status;
+}
+
+async function viewTenderDetails(tenderId) {
+    try {
+        const tender = await apiCall(`/tenders/${tenderId}`);
+        showTenderDetailsModal(tender);
+    } catch (error) {
+        console.error('View tender error:', error);
+        showToast('خطأ في تحميل تفاصيل التندر', 'error');
+    }
+}
+
+function showTenderDetailsModal(tender) {
+    const modal = document.createElement('div');
+    modal.className = 'modal tender-details-modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>${escapeHtml(tender.title)}</h3>
+                <button class="close-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="tender-info">
+                    <p><strong>الحالة:</strong> ${getTenderStatusText(tender.status)}</p>
+                    ${tender.description ? `<p><strong>الوصف:</strong> ${escapeHtml(tender.description)}</p>` : ''}
+                    ${tender.budget ? `<p><strong>الميزانية:</strong> ${Number(tender.budget).toFixed(2)} ج.م</p>` : ''}
+                    ${tender.deadline ? `<p><strong>موعد التسليم:</strong> ${formatDate(tender.deadline)}</p>` : ''}
+                </div>
+                ${tender.items && tender.items.length > 0 ? `
+                    <div class="tender-items">
+                        <h4>الأصناف المطلوبة</h4>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>المنتج</th>
+                                    <th>الكمية</th>
+                                    <th>الوحدة</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${tender.items.map(item => `
+                                    <tr>
+                                        <td>${escapeHtml(item.product_name || '')}</td>
+                                        <td>${Number(item.quantity).toLocaleString()}</td>
+                                        <td>${escapeHtml(item.unit || '')}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                ` : ''}
+                ${tender.bids && tender.bids.length > 0 && currentUser?.role === 'pharmacy' ? `
+                    <div class="tender-bids">
+                        <h4>العروض المقدمة</h4>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>المخزن</th>
+                                    <th>المبلغ</th>
+                                    <th>الحالة</th>
+                                    <th>الإجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${tender.bids.map(bid => `
+                                    <tr>
+                                        <td>${escapeHtml(bid.warehouse_name || '')}</td>
+                                        <td>${Number(bid.total_amount).toFixed(2)} ج.م</td>
+                                        <td>${getBidStatusText(bid.status)}</td>
+                                        <td>
+                                            ${bid.status === 'pending' ? `
+                                                <button class="btn btn-sm btn-success award-bid-btn" data-bid-id="${bid.id}">قبول</button>
+                                            ` : ''}
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                ` : ''}
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary close-modal-btn">إغلاق</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    modal.querySelectorAll('.close-modal, .close-modal-btn').forEach(btn => {
+        btn.addEventListener('click', () => modal.remove());
+    });
+
+    modal.querySelectorAll('.award-bid-btn').forEach(btn => {
+        btn.addEventListener('click', () => awardBid(btn.dataset.bidId, tender.id));
+    });
+}
+
+function getBidStatusText(status) {
+    const statusMap = {
+        'pending': 'قيد المراجعة',
+        'accepted': 'مقبول',
+        'rejected': 'مرفوض'
+    };
+    return statusMap[status] || status;
+}
+
+async function awardBid(bidId, tenderId) {
+    if (!confirm('هل أنت متأكد من قبول هذا العرض؟')) return;
+
+    try {
+        await apiCall(`/tenders/${tenderId}/bids/${bidId}/award`, 'POST');
+        showToast('تم قبول العرض بنجاح', 'success');
+        loadTendersPage();
+    } catch (error) {
+        console.error('Award bid error:', error);
+        showToast('خطأ في قبول العرض', 'error');
+    }
+}
+
+async function showSubmitBidModal(tenderId) {
+    try {
+        const tender = await apiCall(`/tenders/${tenderId}`);
+        
+        const modal = document.createElement('div');
+        modal.className = 'modal submit-bid-modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>تقديم عرض لـ: ${escapeHtml(tender.title)}</h3>
+                    <button class="close-modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="submit-bid-form">
+                        ${tender.items && tender.items.length > 0 ? `
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>المنتج</th>
+                                        <th>الكمية</th>
+                                        <th>سعر الوحدة</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${tender.items.map(item => `
+                                        <tr>
+                                            <td>${escapeHtml(item.product_name || '')}</td>
+                                            <td>${Number(item.quantity).toLocaleString()}</td>
+                                            <td>
+                                                <input type="number" step="0.01" min="0" 
+                                                    name="price_${item.id}" 
+                                                    data-item-id="${item.id}"
+                                                    data-quantity="${item.quantity}"
+                                                    class="bid-price-input" 
+                                                    placeholder="السعر" required>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        ` : ''}
+                        <div class="form-group">
+                            <label>ملاحظات</label>
+                            <textarea name="notes" rows="3" placeholder="أي ملاحظات إضافية..."></textarea>
+                        </div>
+                        <div class="bid-total">
+                            <strong>الإجمالي: </strong>
+                            <span id="bid-total-amount">0.00</span> ج.م
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary close-modal-btn">إلغاء</button>
+                    <button class="btn btn-primary" id="submit-bid-btn">تقديم العرض</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Calculate total
+        const updateTotal = () => {
+            let total = 0;
+            modal.querySelectorAll('.bid-price-input').forEach(input => {
+                const price = parseFloat(input.value) || 0;
+                const quantity = parseFloat(input.dataset.quantity) || 0;
+                total += price * quantity;
+            });
+            document.getElementById('bid-total-amount').textContent = total.toFixed(2);
+        };
+
+        modal.querySelectorAll('.bid-price-input').forEach(input => {
+            input.addEventListener('input', updateTotal);
+        });
+
+        modal.querySelectorAll('.close-modal, .close-modal-btn').forEach(btn => {
+            btn.addEventListener('click', () => modal.remove());
+        });
+
+        document.getElementById('submit-bid-btn').addEventListener('click', async () => {
+            const items = [];
+            modal.querySelectorAll('.bid-price-input').forEach(input => {
+                items.push({
+                    item_id: input.dataset.itemId,
+                    unit_price: parseFloat(input.value) || 0
+                });
+            });
+
+            const notes = modal.querySelector('[name="notes"]').value;
+
+            try {
+                await apiCall(`/tenders/${tenderId}/bids`, {
+                    method: 'POST',
+                    body: JSON.stringify({ items, notes })
+                });
+                showToast('تم تقديم العرض بنجاح', 'success');
+                modal.remove();
+                loadTendersPage();
+            } catch (error) {
+                console.error('Submit bid error:', error);
+                showToast('خطأ في تقديم العرض', 'error');
+            }
+        });
+    } catch (error) {
+        console.error('Load tender for bid error:', error);
+        showToast('خطأ في تحميل التندر', 'error');
+    }
+}
+
+// Make functions globally available
+const showPage = navigateTo;
+window.navigateTo = navigateTo;
+window.logout = logout;
+window.showPage = showPage;

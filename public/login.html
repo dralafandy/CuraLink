@@ -266,8 +266,8 @@
 
             <form id="login-form" class="auth-form active">
                 <div class="form-group">
-                    <label>البريد الإلكتروني</label>
-                    <input type="email" id="login-email" required placeholder="example@mail.com">
+                    <label>البريد الإلكتروني أو اسم المستخدم</label>
+                    <input type="text" id="login-email" required placeholder="example@mail.com أو اسم المستخدم">
                 </div>
                 <div class="form-group">
                     <label>كلمة المرور</label>
@@ -299,9 +299,22 @@
                 </div>
                 <div class="form-group">
                     <label>نوع الحساب</label>
-                    <select id="register-role">
+                    <select id="register-role" onchange="toggleZoneField()">
                         <option value="pharmacy">صيدلية</option>
                         <option value="warehouse">مخزن دواء</option>
+                    </select>
+                </div>
+                <div class="form-group" id="zone-field-group" style="display: none;">
+                    <label>النطاق الجغرافي <span style="color: var(--danger);">*</span></label>
+                    <select id="register-zone">
+                        <option value="">اختر النطاق الجغرافي</option>
+                        <option value="القاهرة الكبرى">القاهرة الكبرى</option>
+                        <option value="الإسكندرية">الإسكندرية</option>
+                        <option value="الدلتا">الدلتا</option>
+                        <option value="الصعيد">الصعيد</option>
+                        <option value="قناة السويس">قناة السويس</option>
+                        <option value="سيناء">سيناء</option>
+                        <option value="أخرى">أخرى</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -382,6 +395,21 @@
             });
         }
 
+        function toggleZoneField() {
+            const roleSelect = document.getElementById('register-role');
+            const zoneFieldGroup = document.getElementById('zone-field-group');
+            const zoneSelect = document.getElementById('register-zone');
+            
+            if (roleSelect.value === 'warehouse') {
+                zoneFieldGroup.style.display = 'block';
+                zoneSelect.setAttribute('required', 'required');
+            } else {
+                zoneFieldGroup.style.display = 'none';
+                zoneSelect.removeAttribute('required');
+                zoneSelect.value = '';
+            }
+        }
+
         function setupAuthTabs() {
             const tabBtns = document.querySelectorAll('.tab-btn');
             const authForms = document.querySelectorAll('.auth-form');
@@ -400,11 +428,17 @@
                 e.preventDefault();
                 clearErrors();
 
-                const email = document.getElementById('login-email').value;
+                const loginInput = document.getElementById('login-email').value;
                 const password = document.getElementById('login-password').value;
 
+                // Determine if input is email or username
+                const isEmail = loginInput.includes('@');
+                const payload = isEmail 
+                    ? { email: loginInput, password } 
+                    : { username: loginInput, password };
+
                 try {
-                    const data = await apiCall('/auth/login', 'POST', { email, password });
+                    const data = await apiCall('/auth/login', 'POST', payload);
                     localStorage.setItem('token', data.token);
                     localStorage.setItem('user', JSON.stringify(data.user));
                     showToast('مرحبًا بعودتك', 'success');
@@ -421,12 +455,15 @@
                 const phone = document.getElementById('register-phone').value;
                 const address = document.getElementById('register-address').value;
                 const role = document.getElementById('register-role').value;
+                const zone = document.getElementById('register-zone').value;
                 const password = document.getElementById('register-password').value;
 
                 try {
-                    const data = await apiCall('/auth/register', 'POST', {
-                        username, email, phone, address, role, password
-                    });
+                    const requestData = { username, email, phone, address, role, password };
+                    if (role === 'warehouse' && zone) {
+                        requestData.zone = zone;
+                    }
+                    const data = await apiCall('/auth/register', 'POST', requestData);
 
                     localStorage.setItem('token', data.token);
                     localStorage.setItem('user', JSON.stringify(data.user));

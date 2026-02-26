@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const db = require('../database/db');
 const { createNotification } = require('../services/notification-service');
 
-const JWT_SECRET = 'curalink_secret_key_2024';
+const JWT_SECRET = process.env.JWT_SECRET || 'curalink_secret_key_2024';
 
 // Middleware to verify token
 function verifyToken(req, res, next) {

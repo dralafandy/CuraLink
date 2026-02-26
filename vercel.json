@@ -7,7 +7,23 @@
     },
     {
       "src": "public/**",
-      "use": "@vercel/static"
+      "use": "@vercel/static-files"
+    },
+    {
+      "src": "middleware/**/*.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "routes/**/*.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "database/**/*.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "services/**/*.js",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
@@ -20,11 +36,21 @@
       "dest": "/public/login.html"
     },
     {
+      "src": "/sw.js",
+      "dest": "/public/sw.js"
+    },
+    {
       "src": "/(.*)",
-      "dest": "/public/$1"
+      "dest": "/public/index.html"
     }
   ],
   "env": {
     "NODE_ENV": "production"
+  },
+  "functions": {
+    "api/index.js": {
+      "memory": 1024,
+      "maxDuration": 30
+    }
   }
 }

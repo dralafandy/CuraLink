@@ -9,6 +9,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/locations.css">
+    <!-- Leaflet CSS for Maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 </head>
 <body>
     <!-- Main App (Hidden until logged in) -->
@@ -37,6 +40,14 @@
                         <i class="fas fa-boxes"></i>
                         <span>المنتجات</span>
                     </a>
+                    <a href="#" class="nav-item" data-page="delivery-zones">
+                        <i class="fas fa-truck"></i>
+                        <span>مناطق التوصيل</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="locations">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <span>مواقعي</span>
+                    </a>
                     <a href="#" class="nav-item" data-page="orders">
                         <i class="fas fa-shopping-cart"></i>
                         <span>الطلبات</span>
@@ -45,13 +56,37 @@
                         <i class="fas fa-file-invoice-dollar"></i>
                         <span>الفواتير</span>
                     </a>
+                    <a href="#" class="nav-item" data-page="contracts">
+                        <i class="fas fa-file-contract"></i>
+                        <span>العقود</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="subscriptions">
+                        <i class="fas fa-sync-alt"></i>
+                        <span>الاشتراكات</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="tenders">
+                        <i class="fas fa-gavel"></i>
+                        <span>المناقصات</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="loyalty">
+                        <i class="fas fa-gift"></i>
+                        <span>نقاط الولاء</span>
+                    </a>
                 </div>
 
                 <!-- Pharmacy Menu -->
                 <div class="pharmacy-menu" style="display: none;">
+                    <a href="#" class="nav-item" data-page="locations">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <span>مواقعي</span>
+                    </a>
                     <a href="#" class="nav-item" data-page="browse-products">
                         <i class="fas fa-search"></i>
                         <span>تصفح المنتجات</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="map">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <span>خريطة المخازن</span>
                     </a>
                     <a href="#" class="nav-item" data-page="wishlist">
                         <i class="fas fa-heart"></i>
@@ -65,6 +100,22 @@
                         <i class="fas fa-shopping-basket"></i>
                         <span>السلة</span>
                         <span class="badge" id="cart-count">0</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="contracts">
+                        <i class="fas fa-file-contract"></i>
+                        <span>العقود</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="subscriptions">
+                        <i class="fas fa-sync-alt"></i>
+                        <span>الطلبات الدورية</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="tenders">
+                        <i class="fas fa-gavel"></i>
+                        <span>المناقصات</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="loyalty">
+                        <i class="fas fa-gift"></i>
+                        <span>نقاط الولاء</span>
                     </a>
                 </div>
 
@@ -441,6 +492,19 @@
                             <label><i class="fas fa-warehouse"></i> المخزن</label>
                             <select id="warehouse-filter" onchange="searchProducts(1)">
                                 <option value="">كل المخازن</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label><i class="fas fa-map-marker-alt"></i> النطاق الجغرافي</label>
+                            <select id="zone-filter" onchange="onZoneFilterChange()">
+                                <option value="">كل النطاقات</option>
+                                <option value="القاهرة الكبرى">القاهرة الكبرى</option>
+                                <option value="الإسكندرية">الإسكندرية</option>
+                                <option value="الدلتا">الدلتا</option>
+                                <option value="الصعيد">الصعيد</option>
+                                <option value="قناة السويس">قناة السويس</option>
+                                <option value="سيناء">سيناء</option>
+                                <option value="أخرى">أخرى</option>
                             </select>
                         </div>
                         <div class="filter-group">
@@ -954,11 +1018,226 @@
                 </div>
             </div>
 
+            <!-- Map Page -->
+            <div id="map-page" class="content-page">
+                <div class="page-header">
+                    <h2><i class="fas fa-map-marker-alt"></i> خريطة المخازن</h2>
+                    <p>اعثر على أقرب المخازن وحدد موقعك</p>
+                </div>
+                <div class="map-container">
+                    <div id="map" class="map-view"></div>
+                    <div class="map-sidebar">
+                        <div class="map-filters">
+                            <h4>فلترة المخازن</h4>
+                            <div class="form-group">
+                                <label>النطاق الجغرافي</label>
+                                <select id="map-zone-filter" onchange="filterMapWarehouses()">
+                                    <option value="">كل النطاقات</option>
+                                    <option value="القاهرة الكبرى">القاهرة الكبرى</option>
+                                    <option value="الإسكندرية">الإسكندرية</option>
+                                    <option value="الدلتا">الدلتا</option>
+                                    <option value="الصعيد">الصعيد</option>
+                                    <option value="قناة السويس">قناة السويس</option>
+                                    <option value="سيناء">سيناء</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>نطاق البحث (كم)</label>
+                                <input type="range" id="map-radius" min="5" max="200" value="50" onchange="updateMapRadius()">
+                                <span id="map-radius-value">50 كم</span>
+                            </div>
+                            <button class="btn-primary" onclick="findNearbyWarehouses()">
+                                <i class="fas fa-location-arrow"></i> أقرب المخازن لي
+                            </button>
+                        </div>
+                        <div class="map-warehouses-list" id="map-warehouses-list">
+                            <h4>المخازن القريبة</h4>
+                            <div class="warehouses-list-content" id="nearby-warehouses-list">
+                                <p class="empty-state">اضغط على "أقرب المخازن لي" للبحث</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Contracts Page -->
+            <div id="contracts-page" class="content-page">
+                <div class="page-header">
+                    <h2><i class="fas fa-file-contract"></i> العقود</h2>
+                    <p>إدارة العقود طويلة الأجل مع المخازن</p>
+                </div>
+                <div class="contracts-container">
+                    <div class="contracts-stats" id="contracts-stats">
+                        <div class="stat-card">
+                            <i class="fas fa-file-contract"></i>
+                            <span class="stat-value" id="total-contracts">0</span>
+                            <span class="stat-label">إجمالي العقود</span>
+                        </div>
+                        <div class="stat-card active">
+                            <i class="fas fa-check-circle"></i>
+                            <span class="stat-value" id="active-contracts">0</span>
+                            <span class="stat-label">نشطة</span>
+                        </div>
+                        <div class="stat-card pending">
+                            <i class="fas fa-clock"></i>
+                            <span class="stat-value" id="pending-contracts">0</span>
+                            <span class="stat-label">بانتظار التوقيع</span>
+                        </div>
+                    </div>
+                    <div class="contracts-actions">
+                        <button class="btn-primary" id="create-contract-btn" onclick="showCreateContractModal()" style="display: none;">
+                            <i class="fas fa-plus"></i> إنشاء عقد جديد
+                        </button>
+                    </div>
+                    <div class="contracts-list" id="contracts-list">
+                        <div class="empty-state">
+                            <i class="fas fa-file-contract"></i>
+                            <p>لا توجد عقود حالياً</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Subscriptions Page -->
+            <div id="subscriptions-page" class="content-page">
+                <div class="page-header">
+                    <h2><i class="fas fa-sync-alt"></i> الطلبات الدورية</h2>
+                    <p>إدارة الطلبات المتكررة والاشتراكات</p>
+                </div>
+                <div class="subscriptions-container">
+                    <div class="subscriptions-actions">
+                        <button class="btn-primary" onclick="showCreateSubscriptionModal()">
+                            <i class="fas fa-plus"></i> إنشاء اشتراك جديد
+                        </button>
+                    </div>
+                    <div class="subscriptions-list" id="subscriptions-list">
+                        <div class="empty-state">
+                            <i class="fas fa-sync-alt"></i>
+                            <p>لا توجد اشتراكات حالياً</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tenders Page -->
+            <div id="tenders-page" class="content-page">
+                <div class="page-header">
+                    <h2><i class="fas fa-gavel"></i> المناقصات</h2>
+                    <p>نظام المناقصات والعطاءات للحصول على أفضل الأسعار</p>
+                </div>
+                <div class="tenders-container">
+                    <div class="tenders-tabs">
+                        <button class="tab-btn active" onclick="switchTendersTab('public')">المناقصات المتاحة</button>
+                        <button class="tab-btn" onclick="switchTendersTab('my')">مناقصاتي</button>
+                    </div>
+                    <div class="tenders-actions">
+                        <button class="btn-primary" id="create-tender-btn" onclick="showCreateTenderModal()" style="display: none;">
+                            <i class="fas fa-plus"></i> إنشاء مناقصة جديدة
+                        </button>
+                    </div>
+                    <div class="tenders-list" id="tenders-list">
+                        <div class="empty-state">
+                            <i class="fas fa-gavel"></i>
+                            <p>لا توجد مناقصات حالياً</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loyalty Page -->
+            <div id="loyalty-page" class="content-page">
+                <div class="page-header">
+                    <h2><i class="fas fa-gift"></i> نقاط الولاء</h2>
+                    <p>اكسب النقاط واستبدلها بمكافآت قيمة</p>
+                </div>
+                <div class="loyalty-container">
+                    <div class="loyalty-card">
+                        <div class="loyalty-header">
+                            <div class="loyalty-tier" id="loyalty-tier">
+                                <i class="fas fa-medal"></i>
+                                <span>برونزي</span>
+                            </div>
+                            <div class="loyalty-points">
+                                <span class="points-value" id="loyalty-points">0</span>
+                                <span class="points-label">نقطة</span>
+                            </div>
+                        </div>
+                        <div class="loyalty-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="loyalty-progress" style="width: 0%"></div>
+                            </div>
+                            <p class="progress-text" id="loyalty-progress-text">0 / 500 للوصول للفضي</p>
+                        </div>
+                    </div>
+                    <div class="loyalty-tabs">
+                        <button class="tab-btn active" onclick="switchLoyaltyTab('rewards')">المكافآت</button>
+                        <button class="tab-btn" onclick="switchLoyaltyTab('history')">سجل النقاط</button>
+                        <button class="tab-btn" onclick="switchLoyaltyTab('redemptions')">الاستبدالات</button>
+                    </div>
+                    <div class="loyalty-content" id="loyalty-content">
+                        <div class="rewards-grid" id="rewards-grid">
+                            <div class="empty-state">
+                                <i class="fas fa-gift"></i>
+                                <p>جاري تحميل المكافآت...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Locations Page -->
+            <div id="locations-page" class="content-page">
+                <div class="page-header">
+                    <h2><i class="fas fa-map-marker-alt"></i> مواقعي</h2>
+                    <button class="btn btn-primary" onclick="showLocationModal()">
+                        <i class="fas fa-plus"></i>
+                        إضافة موقع جديد
+                    </button>
+                </div>
+                <div class="locations-grid" id="locations-grid">
+                    <div class="empty-state">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <p>لا توجد مواقع محفوظة</p>
+                        <button class="btn btn-primary" onclick="showLocationModal()">
+                            إضافة موقع جديد
+                        </button>
+                    </div>
+                </div>
+                <div id="location-map-container" class="map-container" style="display: none;">
+                    <div id="location-map" style="height: 400px;"></div>
+                </div>
+            </div>
+
+            <!-- Delivery Zones Page -->
+            <div id="delivery-zones-page" class="content-page">
+                <div class="page-header">
+                    <h2><i class="fas fa-truck"></i> مناطق التوصيل</h2>
+                    <button class="btn btn-primary" onclick="showAddDeliveryZoneModal()">
+                        <i class="fas fa-plus"></i>
+                        إضافة منطقة توصيل
+                    </button>
+                </div>
+                <div class="delivery-zones-page">
+                    <div id="delivery-zones-list">
+                        <div class="empty-state">
+                            <i class="fas fa-truck"></i>
+                            <p>جاري تحميل مناطق التوصيل...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Toast Container -->
             <div id="toast-container"></div>
         </main>
     </div>
 
     <script src="/js/app.js"></script>
+    <!-- Leaflet JS for Maps -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- Location Management Module -->
+    <script src="/js/location-management.js"></script>
+    <!-- Delivery Zones Management Module -->
+    <script src="/js/delivery-zones.js"></script>
 </body>
 </html>

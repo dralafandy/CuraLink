@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../database/db');
 
-const JWT_SECRET = 'curalink_secret_key_2024';
+const JWT_SECRET = process.env.JWT_SECRET || 'curalink_secret_key_2024';
 
 function getUserFromToken(req) {
     const token = req.headers.authorization?.split(' ')[1];
@@ -17,9 +17,20 @@ function getUserFromToken(req) {
     }
 }
 
+// Available geographic zones
+const GEOGRAPHIC_ZONES = [
+    'القاهرة الكبرى',
+    'الإسكندرية',
+    'الدلتا',
+    'الصعيد',
+    'قناة السويس',
+    'سيناء',
+    'أخرى'
+];
+
 // Register
 router.post('/register', async (req, res) => {
-    const { username, email, password, phone, address, role } = req.body;
+    const { username, email, password, phone, address, role, zone } = req.body;
 
     if (!username || !email || !password || !role) {
         return res.status(400).json({ error: 'جميع الحقول المطلوبة غير مكتملة' });
@@ -27,6 +38,18 @@ router.post('/register', async (req, res) => {
 
     if (!['warehouse', 'pharmacy'].includes(role)) {
         return res.status(400).json({ error: 'الدور غير صالح' });
+    }
+
+    // Validate zone for warehouses
+    let userZone = null;
+    if (role === 'warehouse') {
+        if (!zone) {
+            return res.status(400).json({ error: 'النطاق الجغرافي مطلوب للمخازن' });
+        }
+        if (!GEOGRAPHIC_ZONES.includes(zone)) {
+            return res.status(400).json({ error: 'النطاق الجغرافي غير صالح' });
+        }
+        userZone = zone;
     }
 
     try {
@@ -40,8 +63,8 @@ router.post('/register', async (req, res) => {
         }
 
         const result = await db.run(
-            'INSERT INTO users (username, email, password, phone, address, role) VALUES (?, ?, ?, ?, ?, ?)',
-            [username, email, hashedPassword, phone || null, address || null, role]
+            'INSERT INTO users (username, email, password, phone, address, role, zone) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [username, email, hashedPassword, phone || null, address || null, role, userZone]
         );
 
         const token = jwt.sign({ id: result.lastID, role }, JWT_SECRET, { expiresIn: '24h' });
@@ -55,7 +78,8 @@ router.post('/register', async (req, res) => {
                 email,
                 role,
                 phone: phone || null,
-                address: address || null
+                address: address || null,
+                zone: userZone
             }
         });
     } catch (err) {
@@ -66,46 +90,70 @@ router.post('/register', async (req, res) => {
 
 // Login
 router.post('/login', async (req, res) => {
-    const { email, password } = req.body;
+    const { email, password, username } = req.body;
 
-    if (!email || !password) {
-        return res.status(400).json({ error: 'البريد الإلكتروني وكلمة المرور مطلوبان' });
+    console.log('[DEBUG] Login attempt - email:', email, 'username:', username);
+
+    // Allow login with either email or username
+    const loginIdentifier = email || username;
+    
+    if (!loginIdentifier || !password) {
+        console.log('[DEBUG] Missing login identifier or password');
+        return res.status(400).json({ error: 'البريد الإلكتروني/اسم المستخدم وكلمة المرور مطلوبان' });
     }
 
     try {
-        const user = await db.get('SELECT * FROM users WHERE email = ?', [email]);
+        console.log('[DEBUG] Querying user from database...');
+        // Check by email OR username
+        const user = await db.get(
+            'SELECT * FROM users WHERE email = ? OR username = ?', 
+            [loginIdentifier, loginIdentifier]
+        );
 
         if (!user) {
+            console.log('[DEBUG] User not found for identifier:', loginIdentifier);
             return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
         }
 
+        console.log('[DEBUG] User found, user.id:', user.id, 'user.role:', user.role);
+
         let isPasswordValid = false;
         const storedPassword = typeof user.password === 'string' ? user.password : '';
+
+        console.log('[DEBUG] Stored password hash:', storedPassword.substring(0, 20) + '...');
 
         // Support legacy plain-text passwords without crashing login,
         // then upgrade them to bcrypt on first successful login.
         if (storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2y$')) {
             try {
                 isPasswordValid = bcrypt.compareSync(password, storedPassword);
+                console.log('[DEBUG] Bcrypt comparison result:', isPasswordValid);
             } catch (compareErr) {
-                console.error('Login bcrypt compare error:', compareErr.message);
+                console.error('[DEBUG] Login bcrypt compare error:', compareErr.message);
                 isPasswordValid = false;
             }
         } else if (storedPassword) {
             isPasswordValid = password === storedPassword;
+            console.log('[DEBUG] Plain text comparison result:', isPasswordValid);
             if (isPasswordValid) {
                 try {
                     const upgradedHash = bcrypt.hashSync(password, 10);
                     await db.run('UPDATE users SET password = ? WHERE id = ?', [upgradedHash, user.id]);
+                    console.log('[DEBUG] Password upgraded to bcrypt');
                 } catch (upgradeErr) {
-                    console.error('Password hash upgrade failed:', upgradeErr.message);
+                    console.error('[DEBUG] Password hash upgrade failed:', upgradeErr.message);
                 }
             }
+        } else {
+            console.log('[DEBUG] No stored password found');
         }
 
         if (!isPasswordValid) {
+            console.log('[DEBUG] Password validation failed');
             return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
         }
+
+        console.log('[DEBUG] Login successful for user:', user.id);
 
         const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
 
@@ -119,6 +167,7 @@ router.post('/login', async (req, res) => {
                 role: user.role,
                 phone: user.phone,
                 address: user.address,
+                zone: user.zone,
                 rating: user.rating
             }
         });
@@ -207,13 +256,38 @@ router.put('/me', async (req, res) => {
     }
 });
 
-// Get all warehouses (for pharmacy)
+// Get all warehouses (for pharmacy) with optional zone filter
 router.get('/warehouses', async (req, res) => {
     try {
-        const users = await db.all('SELECT id, username, phone, address, rating, rating_count FROM users WHERE role = ?', ['warehouse']);
+        const { zone } = req.query;
+        
+        let query = 'SELECT id, username, phone, address, zone, rating, rating_count FROM users WHERE role = ?';
+        let params = ['warehouse'];
+        
+        if (zone && zone !== '') {
+            query += ' AND zone = ?';
+            params.push(zone);
+        }
+        
+        query += ' ORDER BY rating DESC, username ASC';
+        
+        const users = await db.all(query, params);
         return res.json({ warehouses: users });
     } catch (err) {
         console.error('Get warehouses error:', err);
+        return res.status(500).json({ error: 'خطأ في الخادم' });
+    }
+});
+
+// Get available geographic zones
+router.get('/zones', async (req, res) => {
+    try {
+        return res.json({ 
+            zones: GEOGRAPHIC_ZONES,
+            message: 'النطاقات الجغرافية المتاحة'
+        });
+    } catch (err) {
+        console.error('Get zones error:', err);
         return res.status(500).json({ error: 'خطأ في الخادم' });
     }
 });

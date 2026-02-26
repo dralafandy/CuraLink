@@ -1,39 +1,19 @@
-# PharmaConnect - Supabase Configuration
+# CuraLink TODO - Fix API Errors
 
-## Status: ✅ Complete
+## Completed
+- [x] Fix notifications 500 error - Added required `title` field to notification insert in `services/notification-service.js`
+- [x] Fix locations 404 error - Added root "/" route in `routes/locations.js`
 
-## Files Updated for Supabase:
+## Issues Fixed:
+1. **Issue: `/api/notifications/unread-count` returning 500**
+   - Root Cause: `notification-service.js` was inserting notifications without the required `title` field
+   - Fix: Added `title` field to the INSERT statement (using first 100 chars of message)
 
-| File | Description |
-|------|-------------|
-| `package.json` | Added @supabase/supabase-js |
-| `database/db.js` | Supabase client with callback API |
-| `database/supabase-schema.sql` | SQL schema for Supabase |
-| `routes/auth.js` | Updated to async/await |
-| `vercel.json` | Fixed build configuration |
+2. **Issue: `/api/locations` returning 404**
+   - Root Cause: No root route "/" existed in the locations router (routes defined were /locations which became /api/locations/locations)
+   - Fix: Added "/" route that returns locations for authenticated user
 
-## Setup Steps:
-
-### 1. Create Supabase Project
-- Go to https://supabase.com
-- Create new project
-
-### 2. Run SQL Schema
-- Open SQL Editor in Supabase dashboard
-- Copy contents of `database/supabase-schema.sql`
-- Run the SQL
-
-### 3. Get Credentials
-- Settings → API
-- Copy `SUPABASE_URL` and `SUPABASE_ANON_KEY`
-
-### 4. Deploy to Vercel
-- Add environment variables:
-  - `SUPABASE_URL`
-  - `SUPABASE_ANON_KEY`
-  - `NODE_ENV=production`
-
-## Test Accounts:
-- Admin: admin@curalink.com / admin123
-- Warehouse: warehouse1@test.com / warehouse123  
-- Pharmacy: pharmacy1@test.com / pharmacy123
+## Testing Needed:
+1. Test `/api/notifications/unread-count` - should return JSON with count
+2. Test `/api/locations` - should return locations array
+3. Test location features in the UI

@@ -4,12 +4,14 @@ const { sendPushToUser } = require('./push');
 function createNotification({ userId, type, message, relatedId = null, metadata = null }) {
     return new Promise((resolve, reject) => {
         const metadataJson = metadata ? JSON.stringify(metadata) : null;
+        // Use message as title since title is required by the database
+        const title = message.length > 100 ? message.substring(0, 100) : message;
         db.run(
             `
-                INSERT INTO notifications (user_id, type, message, related_id, metadata_json)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO notifications (user_id, type, title, message, related_id, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?)
             `,
-            [userId, type, message, relatedId, metadataJson],
+            [userId, type, title, message, relatedId, metadataJson],
             async function onInsert(err) {
                 if (err) return reject(err);
 
